@@ -1,0 +1,230 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #0d0d0c;
+  color: #f3efe1;
+  font-family:
+    Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.phone-shell {
+  position: relative;
+  width: min(100vw, 430px);
+  height: min(100svh, 932px);
+  min-height: 620px;
+  overflow: hidden;
+  isolation: isolate;
+  background: #151515;
+}
+
+@media (min-width: 560px) {
+  .phone-shell {
+    border: 1px solid rgb(224 208 133 / 18%);
+    border-radius: 22px;
+    box-shadow: 0 24px 80px rgb(0 0 0 / 45%);
+  }
+}
+
+@media (max-width: 430px), (max-height: 680px) {
+  .phone-shell {
+    height: 100svh;
+    min-height: 0;
+  }
+}
+
+.scene,
+.scene canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.scene canvas {
+  display: block;
+  touch-action: none;
+}
+
+.hud {
+  position: absolute;
+  z-index: 2;
+  top: calc(env(safe-area-inset-top) + 12px);
+  left: 14px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.hud span,
+.rank-panel,
+.status {
+  border: 1px solid rgb(224 208 133 / 22%);
+  border-radius: 7px;
+  background: rgb(12 12 10 / 62%);
+  color: #f3efe1;
+  backdrop-filter: blur(10px);
+}
+
+.hud span {
+  max-width: 50%;
+  overflow: hidden;
+  padding: 7px 10px;
+  font-size: 12px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud span:last-child {
+  color: #e4d383;
+}
+
+.rank-panel {
+  position: absolute;
+  z-index: 2;
+  top: calc(env(safe-area-inset-top) + 54px);
+  left: 14px;
+  right: 14px;
+  display: grid;
+  gap: 8px;
+  max-height: calc(100svh - env(safe-area-inset-top) - 74px);
+  overflow: auto;
+  padding: 10px;
+}
+
+.control-field {
+  display: grid;
+  grid-template-columns: minmax(0, 82px) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.control-field span,
+.movement-status,
+.weapon-status {
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.control-field > span:first-child {
+  color: #e4d383;
+}
+
+.control-field select {
+  min-width: 0;
+  width: 100%;
+  height: 36px;
+  border: 1px solid rgb(224 208 133 / 28%);
+  border-radius: 7px;
+  padding: 0 10px;
+  background: #1f211f;
+  color: #f3efe1;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.control-field select:focus {
+  border-color: rgb(228 211 131 / 72%);
+}
+
+.control-field select:disabled {
+  color: rgb(243 239 225 / 45%);
+}
+
+.range-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 54px;
+  align-items: center;
+  gap: 8px;
+}
+
+.range-control input {
+  min-width: 0;
+  width: 100%;
+  accent-color: #e4d383;
+}
+
+.range-control output {
+  color: rgb(243 239 225 / 72%);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.copy-row {
+  display: grid;
+  grid-template-columns: minmax(0, 158px) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.copy-row button {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid rgb(224 208 133 / 32%);
+  border-radius: 7px;
+  padding: 0 10px;
+  background: #2a2b25;
+  color: #f3efe1;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.copy-row button:focus {
+  border-color: rgb(228 211 131 / 72%);
+  outline: none;
+}
+
+.copy-row button:disabled {
+  color: rgb(243 239 225 / 42%);
+}
+
+.movement-status,
+.weapon-status {
+  margin: 0;
+  color: rgb(243 239 225 / 72%);
+}
+
+.status {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom) + 16px);
+  width: max-content;
+  max-width: calc(100% - 32px);
+  padding: 9px 12px;
+  font-size: 13px;
+  line-height: 1.2;
+  text-align: center;
+  transform: translateX(-50%);
+  transition:
+    opacity 180ms ease,
+    visibility 180ms ease;
+}
+
+.status.is-hidden {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.status.is-error {
+  border-color: rgb(255 116 89 / 45%);
+  color: #ffd2c8;
+}
