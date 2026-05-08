@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Rank - HUNK 3D</title>
+    <link rel="preload" href="./assets/title-screen.webp" as="image" type="image/webp" />
     <link rel="stylesheet" href="./styles.css" />
     <script type="importmap">
       {
@@ -15,57 +16,193 @@
     </script>
   </head>
   <body>
-    <main class="phone-shell" aria-label="Rank mobile 3D model viewer">
-      <div class="hud" aria-hidden="true">
-        <span>Rank</span>
-        <span>10 x 10</span>
+    <div class="start-screen" id="startScreen" role="dialog" aria-modal="true" aria-labelledby="startTitle">
+      <div class="start-menu">
+        <h1 class="start-title" id="startTitle" aria-label="The Hunk">
+          <span class="start-title__the">The</span>
+          <span class="start-title__hunk">Hunk</span>
+        </h1>
+        <button class="start-button" id="startButton" type="button">GAME START</button>
       </div>
-      <section class="rank-panel" aria-label="Controles do Rank">
-        <label class="control-field" for="movementSelect">
-          <span>Movimento</span>
-          <select id="movementSelect" disabled></select>
-        </label>
-        <p class="movement-status" id="movementStatus" aria-live="polite">Carregando</p>
-        <label class="control-field" for="weaponSelect">
-          <span>Arma</span>
-          <select id="weaponSelect" disabled></select>
-        </label>
-        <label class="control-field range-field" for="offsetX">
-          <span>Horizontal</span>
-          <span class="range-control">
-            <input id="offsetX" type="range" min="-0.5" max="0.5" step="0.005" disabled />
-            <output id="offsetXValue" for="offsetX">0.000</output>
-          </span>
-        </label>
-        <label class="control-field range-field" for="offsetY">
-          <span>Vertical</span>
-          <span class="range-control">
-            <input id="offsetY" type="range" min="-0.5" max="0.5" step="0.005" disabled />
-            <output id="offsetYValue" for="offsetY">0.000</output>
-          </span>
-        </label>
-        <label class="control-field range-field" for="offsetZ">
-          <span>Lateral Z</span>
-          <span class="range-control">
-            <input id="offsetZ" type="range" min="-0.5" max="0.5" step="0.005" disabled />
-            <output id="offsetZValue" for="offsetZ">0.000</output>
-          </span>
-        </label>
-        <label class="control-field range-field" for="weaponScale">
-          <span>Tamanho</span>
-          <span class="range-control">
-            <input id="weaponScale" type="range" min="0.1" max="8" step="0.05" disabled />
-            <output id="weaponScaleValue" for="weaponScale">1.00</output>
-          </span>
-        </label>
-        <div class="copy-row">
-          <button id="copyInfoButton" type="button" disabled>Copiar informacoes</button>
-          <p class="weapon-status" id="weaponStatus" aria-live="polite">Arma: carregando</p>
+    </div>
+    <div class="dev-layout">
+      <div class="dev-side-stack dev-side-stack--left">
+        <aside class="dev-panel dev-panel--left tile-editor-panel" aria-label="Editor top-down de tiles">
+          <div class="panel-heading">
+            <span>Mapa tiles</span>
+            <small id="mapStatus" aria-live="polite">4 tiles</small>
+          </div>
+          <section class="tile-editor" aria-label="Mapa top-down">
+            <div class="tile-editor-toolbar" aria-label="Controles do mapa">
+              <button id="mapZoomOut" type="button" aria-label="Diminuir zoom">-</button>
+              <button id="mapZoomReset" type="button">Fit</button>
+              <button id="mapZoomIn" type="button" aria-label="Aumentar zoom">+</button>
+              <button id="applyMapButton" type="button">Aplicar</button>
+            </div>
+            <div class="tile-editor-options" aria-label="Opcoes de construcao">
+              <label class="toggle-row" for="showTileEdges">
+                <span>Tile visivel</span>
+                <span class="toggle-control">
+                  <input id="showTileEdges" type="checkbox" checked />
+                  <span class="toggle-track" aria-hidden="true"></span>
+                  <span class="toggle-value" id="showTileEdgesValue">Sim</span>
+                </span>
+              </label>
+              <label class="toggle-row" for="mapCovered">
+                <span>Coberto</span>
+                <span class="toggle-control">
+                  <input id="mapCovered" type="checkbox" checked />
+                  <span class="toggle-track" aria-hidden="true"></span>
+                  <span class="toggle-value" id="mapCoveredValue">Sim</span>
+                </span>
+              </label>
+            </div>
+            <div class="map-scroll" id="mapViewport">
+              <canvas
+                class="map-canvas"
+                id="mapCanvas"
+                width="512"
+                height="512"
+                aria-label="Editor de mapa 16 por 16"
+              ></canvas>
+            </div>
+            <p class="map-feedback" id="mapFeedback" aria-live="polite">Mapa aplicado</p>
+          </section>
+        </aside>
+
+        <aside class="dev-panel dev-panel--left camera-panel" aria-label="Controle de camera">
+          <div class="panel-heading">
+            <span>Camera</span>
+            <small id="cameraStatus" aria-live="polite">Ancorada</small>
+          </div>
+          <label class="toggle-row" for="freeCamera">
+            <span>Camera livre</span>
+            <span class="toggle-control">
+              <input id="freeCamera" type="checkbox" />
+              <span class="toggle-track" aria-hidden="true"></span>
+              <span class="toggle-value" id="freeCameraValue">Nao</span>
+            </span>
+          </label>
+          <label class="toggle-row" for="cameraSideLeft">
+            <span>Lado esquerdo</span>
+            <span class="toggle-control">
+              <input id="cameraSideLeft" type="checkbox" />
+              <span class="toggle-track" aria-hidden="true"></span>
+              <span class="toggle-value" id="cameraSideLeftValue">Nao</span>
+            </span>
+          </label>
+          <label class="control-field range-field" for="cameraOrbit">
+            <span>Orbita</span>
+            <span class="range-control">
+              <input id="cameraOrbit" type="range" min="0" max="360" step="1" value="178" />
+              <output id="cameraOrbitValue" for="cameraOrbit">178</output>
+            </span>
+          </label>
+          <label class="control-field range-field" for="cameraOffsetX">
+            <span>Camera X</span>
+            <span class="range-control">
+              <input id="cameraOffsetX" type="range" min="-20" max="20" step="0.1" value="0" />
+              <output id="cameraOffsetXValue" for="cameraOffsetX">0.0</output>
+            </span>
+          </label>
+          <label class="control-field range-field" for="cameraOffsetY">
+            <span>Camera Y</span>
+            <span class="range-control">
+              <input id="cameraOffsetY" type="range" min="-20" max="20" step="0.1" value="0" />
+              <output id="cameraOffsetYValue" for="cameraOffsetY">0.0</output>
+            </span>
+          </label>
+          <label class="control-field range-field" for="cameraOffsetZ">
+            <span>Camera Z</span>
+            <span class="range-control">
+              <input id="cameraOffsetZ" type="range" min="-20" max="20" step="0.1" value="0" />
+              <output id="cameraOffsetZValue" for="cameraOffsetZ">0.0</output>
+            </span>
+          </label>
+          <button class="camera-copy-button" id="copyCameraButton" type="button">Copiar informacoes</button>
+        </aside>
+      </div>
+
+      <main class="phone-shell" aria-label="Rank mobile 3D model viewer">
+        <div class="hud" aria-hidden="true">
+          <span>Rank</span>
+          <span data-map-hud>16 x 16 / 4 tiles</span>
         </div>
-      </section>
-      <div class="scene" data-scene></div>
-      <div class="status" id="status" role="status">Carregando modelo...</div>
-    </main>
+        <div class="scene" data-scene></div>
+        <div class="crosshair" data-crosshair aria-hidden="true">
+          <span class="crosshair__arm crosshair__arm--top"></span>
+          <span class="crosshair__arm crosshair__arm--right"></span>
+          <span class="crosshair__arm crosshair__arm--bottom"></span>
+          <span class="crosshair__arm crosshair__arm--left"></span>
+          <span class="crosshair__dot"></span>
+        </div>
+        <div class="status" id="status" role="status">Carregando modelo...</div>
+      </main>
+
+      <div class="dev-side-stack dev-side-stack--right">
+        <aside class="dev-panel dev-panel--right" aria-label="Movimento e arma">
+          <div class="panel-heading">
+            <span>Movimento e arma</span>
+            <small>Dev</small>
+          </div>
+          <section class="rank-panel" aria-label="Controles do Rank">
+            <label class="control-field" for="movementSelect">
+              <span>Movimento</span>
+              <select id="movementSelect" disabled></select>
+            </label>
+            <p class="movement-status" id="movementStatus" aria-live="polite">Carregando</p>
+            <label class="control-field" for="weaponSelect">
+              <span>Arma</span>
+              <select id="weaponSelect" disabled></select>
+            </label>
+            <label class="control-field range-field" for="offsetX">
+              <span>Horizontal</span>
+              <span class="range-control">
+                <input id="offsetX" type="range" min="-0.5" max="0.5" step="0.005" disabled />
+                <output id="offsetXValue" for="offsetX">0.000</output>
+              </span>
+            </label>
+            <label class="control-field range-field" for="offsetY">
+              <span>Vertical</span>
+              <span class="range-control">
+                <input id="offsetY" type="range" min="-0.5" max="0.5" step="0.005" disabled />
+                <output id="offsetYValue" for="offsetY">0.000</output>
+              </span>
+            </label>
+            <label class="control-field range-field" for="offsetZ">
+              <span>Lateral Z</span>
+              <span class="range-control">
+                <input id="offsetZ" type="range" min="-0.5" max="0.5" step="0.005" disabled />
+                <output id="offsetZValue" for="offsetZ">0.000</output>
+              </span>
+            </label>
+            <label class="control-field range-field" for="weaponScale">
+              <span>Tamanho</span>
+              <span class="range-control">
+                <input id="weaponScale" type="range" min="0.1" max="8" step="0.05" disabled />
+                <output id="weaponScaleValue" for="weaponScale">1.00</output>
+              </span>
+            </label>
+            <div class="copy-row">
+              <button id="copyInfoButton" type="button" disabled>Copiar informacoes</button>
+              <p class="weapon-status" id="weaponStatus" aria-live="polite">Arma: carregando</p>
+            </div>
+          </section>
+        </aside>
+
+        <aside class="dev-panel dev-panel--right" aria-label="Cores do personagem">
+          <div class="panel-heading">
+            <span>Cores HUNK</span>
+            <small id="colorStatus" aria-live="polite">Aguardando</small>
+          </div>
+          <section class="color-panel" id="colorPanel" aria-label="Paleta do HUNK"></section>
+          <div class="color-actions">
+            <button id="resetColorsButton" type="button">Resetar</button>
+            <button id="copyColorsButton" type="button">Copiar paleta</button>
+          </div>
+        </aside>
+      </div>
+    </div>
     <script type="module" src="./src/main.js"></script>
   </body>
 </html>
