@@ -7,6 +7,9 @@ import { defaultMapConfig } from "./map-config.js";
 const sceneElement = document.querySelector("[data-scene]");
 const statusElement = document.querySelector("#status");
 const crosshairElement = document.querySelector("[data-crosshair]");
+const phoneShellElement = document.querySelector(".phone-shell");
+const healthHudElement = document.querySelector("[data-health-hud]");
+const damageFlashElement = document.querySelector("[data-damage-flash]");
 const startScreen = document.querySelector("#startScreen");
 const startButton = document.querySelector("#startButton");
 const mapCanvas = document.querySelector("#mapCanvas");
@@ -67,6 +70,13 @@ const resetColorsButton = document.querySelector("#resetColorsButton");
 const copyColorsButton = document.querySelector("#copyColorsButton");
 const modelUrl = new URL("../assets/HUNK.glb", import.meta.url).href;
 const minionUrl = new URL("../assets/minion.glb", import.meta.url).href;
+const runtimeHost = window.location.hostname;
+const runtimeIsLocal = window.location.protocol === "file:"
+  || runtimeHost === "localhost"
+  || runtimeHost === "127.0.0.1"
+  || runtimeHost === "::1";
+const runtimeIsGithubPages = runtimeHost.endsWith("github.io");
+const runtimeIsStaticHosted = !runtimeIsLocal && runtimeIsGithubPages;
 const gunPackPath = "../assets/Styloo Guns Asset Pack GLTF FBX V1.1/Normal version Color and NormalMap/GLB/";
 const sewerTextureUrls = {
   floor: [
@@ -170,16 +180,17 @@ const playerMousePitchSensitivity = 0.0022;
 const playerAimMouseSensitivityMultiplier = 0.68;
 const playerMousePitchLimit = THREE.MathUtils.degToRad(22);
 const playerMaxHealth = 50;
-const playerFireInterval = 0.22;
-const projectileSpeed = 42;
-const projectileMaxDistance = 48;
+const playerFireInterval = 0.11;
+const projectileMaxDistance = 80;
 const projectileBodyDamage = 2;
 const projectileHeadDamage = 10;
-const projectileRadius = 0.08;
+const impactEffectDuration = 0.22;
+const impactLightIntensity = 5.6;
+const enemyHitReactDuration = 0.18;
 const enemyMaxHealth = 20;
-const enemyVisionDistance = platformTileSize * 3.6;
+const enemyVisionDistance = platformTileSize * 7.2;
 const enemyWalkSpeed = 1.35;
-const enemyCollisionRadius = 0.58;
+const enemyCollisionRadius = 0.75;
 const enemyAttackRange = 1.65;
 const enemyAttackDamage = 6;
 const enemyAttackCooldown = 1.25;
@@ -551,7 +562,7 @@ let platformGroup = null;
 let enemySourceModel = null;
 let enemyGroup = null;
 let activeEnemies = [];
-let activeProjectiles = [];
+let activeImpactEffects = [];
 const wallOcclusionRaycaster = new THREE.Raycaster();
 const wallOcclusionTarget = new THREE.Vector3();
 const wallOccluders = new Set();
@@ -565,10 +576,8 @@ const enemyNextPosition = new THREE.Vector3();
 const enemyPlayerTarget = new THREE.Vector3();
 const enemyProjectileRaycaster = new THREE.Raycaster();
 const projectileDirection = new THREE.Vector3();
-const projectileStartPosition = new THREE.Vector3();
-const projectileEndPosition = new THREE.Vector3();
-const projectileMuzzlePosition = new THREE.Vector3();
-const projectileAimTarget = new THREE.Vector3();
+const shotImpactPoint = new THREE.Vector3();
+const shotImpactNormal = new THREE.Vector3();
 const cameraCollisionRaycaster = new THREE.Raycaster();
 const cameraCollisionDirection = new THREE.Vector3();
 const cameraCollisionRayDirection = new THREE.Vector3();
@@ -603,8 +612,14 @@ function weapon(id, label, file, options = {}) {
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x151515);
 
-const projectileGeometry = new THREE.SphereGeometry(projectileRadius, 10, 6);
-const projectileMaterial = new THREE.MeshBasicMaterial({ color: 0xb8fff1 });
+const impactGeometry = new THREE.SphereGeometry(0.075, 10, 6);
+const impactMaterial = new THREE.MeshBasicMaterial({
+  color: 0xfff1c1,
+  transparent: true,
+  opacity: 0.92,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
 
 const camera = new THREE.PerspectiveCamera(42, 1, 0.05, 120);
 camera.position.set(7, 5.2, 9.5);
@@ -645,6 +660,9 @@ const sewerSurfaceVariants = {
   ceiling: sewerTextureUrls.ceiling.map(loadSewerSurfaceVariant),
 };
 
+document.body.classList.toggle("is-runtime-local", runtimeIsLocal);
+document.body.classList.toggle("is-runtime-static", runtimeIsStaticHosted);
+
 platformGroup = createPlatform(createAppliedMapSnapshot());
 scene.add(platformGroup);
 collectWallOccluders(platformGroup);
@@ -659,6 +677,7 @@ setupAttachmentControls();
 renderColorPanel();
 setupColorControls();
 setupStartScreen();
+syncPlayerHealthHud();
 
 const resizeObserver = new ResizeObserver(resize);
 resizeObserver.observe(sceneElement);
@@ -693,7 +712,7 @@ renderer.setAnimationLoop(() => {
     mixer.update(delta);
   }
 
-  updateProjectiles(delta);
+  updateImpactEffects(delta);
   updateEnemies(delta);
 
   if (cameraControlState.freeCamera) {
@@ -1181,6 +1200,7 @@ function createPlayerControlState() {
     health: playerMaxHealth,
     dead: false,
     fireCooldown: 0,
+    hitReactTimer: 0,
   };
 }
 
@@ -1627,7 +1647,11 @@ function updatePlayerControls(delta) {
     syncMapPlayerPositionFromCharacter();
   }
 
-  updatePlayerAnimation(isMoving, isRunning, playerControlState.shooting, playerControlState.aiming);
+  playerControlState.hitReactTimer = Math.max(0, playerControlState.hitReactTimer - delta);
+  if (playerControlState.hitReactTimer <= 0) {
+    updatePlayerAnimation(isMoving, isRunning, playerControlState.shooting, playerControlState.aiming);
+  }
+
   updatePlayerWeaponFire(delta);
   updateCameraAnchorFromCharacter();
   applyAnchoredCameraFrame(delta);
@@ -1650,73 +1674,9 @@ function firePlayerProjectile() {
   }
 
   camera.getWorldDirection(projectileDirection).normalize();
-  const muzzle = getProjectileMuzzlePosition(projectileMuzzlePosition);
-  projectileAimTarget.copy(camera.position).addScaledVector(projectileDirection, projectileMaxDistance);
-  projectileDirection.copy(projectileAimTarget).sub(muzzle).normalize();
-
-  const projectile = new THREE.Mesh(projectileGeometry, projectileMaterial);
-  projectile.position.copy(muzzle).addScaledVector(projectileDirection, 0.28);
-  projectile.userData.velocity = projectileDirection.clone().multiplyScalar(projectileSpeed);
-  projectile.userData.travelled = 0;
-  projectile.userData.maxDistance = projectileMaxDistance;
-  projectile.name = "PlayerProjectile";
-  scene.add(projectile);
-  activeProjectiles.push(projectile);
-}
-
-function getProjectileMuzzlePosition(target) {
-  if (heldSlot) {
-    heldSlot.getWorldPosition(target);
-    return target;
-  }
-
-  target.copy(characterModel.position);
-  target.y += 2.35;
-  return target;
-}
-
-function updateProjectiles(delta) {
-  if (!activeProjectiles.length) {
-    return;
-  }
-
-  for (let index = activeProjectiles.length - 1; index >= 0; index -= 1) {
-    const projectile = activeProjectiles[index];
-    const velocity = projectile.userData.velocity;
-    if (!velocity) {
-      removeProjectileAt(index);
-      continue;
-    }
-
-    projectileStartPosition.copy(projectile.position);
-    const travelDistance = velocity.length() * delta;
-    projectileEndPosition.copy(projectile.position).addScaledVector(velocity, delta);
-
-    if (resolveProjectileHit(projectile, projectileStartPosition, projectileEndPosition, travelDistance)) {
-      removeProjectileAt(index);
-      continue;
-    }
-
-    projectile.position.copy(projectileEndPosition);
-    projectile.userData.travelled += travelDistance;
-
-    if (projectile.userData.travelled >= projectile.userData.maxDistance) {
-      removeProjectileAt(index);
-    }
-  }
-}
-
-function resolveProjectileHit(projectile, start, end, travelDistance) {
-  const segment = projectileDirection.copy(end).sub(start);
-  const segmentLength = segment.length();
-  if (segmentLength <= 0.0001) {
-    return false;
-  }
-
-  segment.normalize();
-  enemyProjectileRaycaster.set(start, segment);
+  enemyProjectileRaycaster.set(camera.position, projectileDirection);
   enemyProjectileRaycaster.near = 0;
-  enemyProjectileRaycaster.far = segmentLength + projectileRadius;
+  enemyProjectileRaycaster.far = projectileMaxDistance;
 
   const wallHits = wallOccluders.size
     ? enemyProjectileRaycaster.intersectObjects([...wallOccluders], false)
@@ -1725,20 +1685,20 @@ function resolveProjectileHit(projectile, start, end, travelDistance) {
   const enemyHit = getClosestProjectileEnemyHit(closestWallDistance);
 
   if (enemyHit) {
-    projectile.position.copy(enemyHit.point);
+    getShotImpactNormal(enemyHit, shotImpactNormal);
     const damage = isProjectileHeadshot(enemyHit.enemy, enemyHit.point, enemyHit.object)
       ? projectileHeadDamage
       : projectileBodyDamage;
+    createImpactEffect(enemyHit.point, shotImpactNormal, { hitEnemy: true });
     damageEnemy(enemyHit.enemy, damage, { source: "shot" });
-    return true;
+    return;
   }
 
-  if (closestWallDistance <= travelDistance + projectileRadius) {
-    projectile.position.copy(wallHits[0].point);
-    return true;
+  if (closestWallDistance < Infinity) {
+    const wallHit = wallHits[0];
+    getShotImpactNormal(wallHit, shotImpactNormal);
+    createImpactEffect(wallHit.point, shotImpactNormal, { hitEnemy: false });
   }
-
-  return false;
 }
 
 function getClosestProjectileEnemyHit(maxDistance) {
@@ -1766,6 +1726,59 @@ function getClosestProjectileEnemyHit(maxDistance) {
   return closestHit;
 }
 
+function getShotImpactNormal(hit, target) {
+  if (hit.face?.normal && hit.object?.matrixWorld) {
+    target.copy(hit.face.normal).transformDirection(hit.object.matrixWorld).normalize();
+    return target;
+  }
+
+  return target.copy(projectileDirection).multiplyScalar(-1).normalize();
+}
+
+function createImpactEffect(point, normal, { hitEnemy = false } = {}) {
+  const material = impactMaterial.clone();
+  const mesh = new THREE.Mesh(impactGeometry, material);
+  const light = new THREE.PointLight(hitEnemy ? 0xffd0a8 : 0xfff1c1, impactLightIntensity, 3.2, 2);
+  const scale = hitEnemy ? 1.35 : 1;
+
+  mesh.name = hitEnemy ? "EnemyImpact" : "WorldImpact";
+  mesh.position.copy(point).addScaledVector(normal, 0.04);
+  mesh.scale.setScalar(scale);
+  light.position.copy(mesh.position).addScaledVector(normal, 0.04);
+  scene.add(mesh, light);
+  activeImpactEffects.push({
+    mesh,
+    light,
+    age: 0,
+    duration: impactEffectDuration,
+    baseScale: scale,
+  });
+}
+
+function updateImpactEffects(delta) {
+  if (!activeImpactEffects.length) {
+    return;
+  }
+
+  for (let index = activeImpactEffects.length - 1; index >= 0; index -= 1) {
+    const effect = activeImpactEffects[index];
+    effect.age += delta;
+    const progress = THREE.MathUtils.clamp(effect.age / effect.duration, 0, 1);
+    const fade = 1 - progress;
+
+    effect.mesh.scale.setScalar(effect.baseScale * (1 + progress * 2.8));
+    effect.mesh.material.opacity = 0.92 * fade;
+    effect.light.intensity = impactLightIntensity * fade;
+
+    if (progress >= 1) {
+      effect.mesh.removeFromParent();
+      effect.light.removeFromParent();
+      effect.mesh.material.dispose();
+      activeImpactEffects.splice(index, 1);
+    }
+  }
+}
+
 function isProjectileHeadshot(enemy, hitPoint, hitObject) {
   let object = hitObject;
   while (object) {
@@ -1785,21 +1798,14 @@ function isProjectileHeadshot(enemy, hitPoint, hitObject) {
   return hitPoint.y >= headLine;
 }
 
-function removeProjectileAt(index) {
-  const [projectile] = activeProjectiles.splice(index, 1);
-  if (!projectile) {
-    return;
+function clearImpactEffects() {
+  for (const effect of activeImpactEffects) {
+    effect.mesh.removeFromParent();
+    effect.light.removeFromParent();
+    effect.mesh.material.dispose();
   }
 
-  projectile.removeFromParent();
-}
-
-function clearProjectiles() {
-  for (const projectile of activeProjectiles) {
-    projectile.removeFromParent();
-  }
-
-  activeProjectiles = [];
+  activeImpactEffects = [];
 }
 
 function getPlayerMovementVector() {
@@ -3158,6 +3164,10 @@ async function applyMapEditorState() {
 }
 
 async function persistAppliedMapConfig() {
+  if (runtimeIsStaticHosted) {
+    return;
+  }
+
   const response = await fetch("/api/map-config", {
     method: "POST",
     headers: {
@@ -3305,7 +3315,7 @@ function positionCharacterOnMap(position, direction = mapEditorState.appliedPlay
 
 function renderAppliedEnemies() {
   clearAppliedEnemies();
-  clearProjectiles();
+  clearImpactEffects();
 
   if (!enemySourceModel || mapEditorState.appliedEnemies.length === 0) {
     return;
@@ -3369,11 +3379,14 @@ function createEnemyRuntime(model, mapEnemy, index) {
     attackDamage: enemyAttackDamage,
     attackCooldown: Math.random() * 0.65,
     attackHitApplied: false,
+    hitReactTimer: 0,
+    hitReactPhase: Math.random() * Math.PI * 2,
     active: true,
   };
 
   setupEnemyAnimationActions(enemy);
   startEnemySpawnAnimation(enemy);
+  enemy.mixer.update(0.001);
   return enemy;
 }
 
@@ -3448,10 +3461,12 @@ function updateEnemies(delta) {
     enemy.mixer?.update(delta);
 
     if (enemy.state === "dead") {
+      updateEnemyHitFeedback(enemy, delta);
       continue;
     }
 
     updateEnemyState(enemy, delta);
+    updateEnemyHitFeedback(enemy, delta);
   }
 }
 
@@ -3493,6 +3508,17 @@ function updateEnemyState(enemy, delta) {
   } else {
     setEnemyLoopState(enemy, "idle", "Skeletons_Idle");
   }
+}
+
+function updateEnemyHitFeedback(enemy, delta) {
+  if (enemy.hitReactTimer <= 0) {
+    enemy.model.rotation.z = 0;
+    return;
+  }
+
+  enemy.hitReactTimer = Math.max(0, enemy.hitReactTimer - delta);
+  const progress = enemy.hitReactTimer / enemyHitReactDuration;
+  enemy.model.rotation.z = Math.sin((1 - progress) * Math.PI * 8 + enemy.hitReactPhase) * 0.055 * progress;
 }
 
 function isEnemyTimedState(state) {
@@ -3634,7 +3660,12 @@ function damagePlayer(amount) {
   }
 
   playerControlState.health = Math.max(0, playerControlState.health - amount);
+  syncPlayerHealthHud();
+  triggerPlayerDamageFeedback();
+
   if (playerControlState.health > 0) {
+    playerControlState.hitReactTimer = 0.42;
+    playMovement(Math.random() < 0.5 ? "Hit_A" : "Hit_B", { restart: true });
     return;
   }
 
@@ -3651,6 +3682,8 @@ function damageEnemy(enemy, amount, { source = "generic" } = {}) {
 
   const previousHealth = enemy.health;
   enemy.health = Math.max(0, enemy.health - amount);
+  enemy.hitReactTimer = enemyHitReactDuration;
+  enemy.hitReactPhase = Math.random() * Math.PI * 2;
 
   if (enemy.health <= 0) {
     killEnemy(enemy);
@@ -5182,11 +5215,11 @@ function fitEnemyModelToTile(model) {
     return;
   }
 
-  const targetHeight = 3.6;
+  const targetHeight = 4.68;
   const maxFootprint = Math.max(sourceSize.x, sourceSize.z);
   let scale = targetHeight / Math.max(sourceSize.y, 0.001);
-  if (maxFootprint * scale > platformTileSize * 0.72) {
-    scale = (platformTileSize * 0.72) / maxFootprint;
+  if (maxFootprint * scale > platformTileSize * 0.9) {
+    scale = (platformTileSize * 0.9) / maxFootprint;
   }
 
   model.scale.setScalar(THREE.MathUtils.clamp(scale, 0.001, 1000));
@@ -5311,6 +5344,28 @@ function setMovementStatus(message) {
 
 function setWeaponStatus(message) {
   weaponStatus.textContent = message;
+}
+
+function syncPlayerHealthHud() {
+  if (!healthHudElement) {
+    return;
+  }
+
+  healthHudElement.textContent = `Vida ${Math.ceil(playerControlState.health)}`;
+}
+
+function triggerPlayerDamageFeedback() {
+  if (!phoneShellElement || !damageFlashElement) {
+    return;
+  }
+
+  phoneShellElement.classList.remove("is-player-hit");
+  window.requestAnimationFrame(() => {
+    phoneShellElement.classList.add("is-player-hit");
+    window.setTimeout(() => {
+      phoneShellElement.classList.remove("is-player-hit");
+    }, 120);
+  });
 }
 
 function hideStatus() {

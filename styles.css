@@ -29,7 +29,7 @@ body {
   overflow: hidden;
   background:
     linear-gradient(180deg, rgb(0 0 0 / 18%) 0%, rgb(0 0 0 / 10%) 34%, rgb(0 0 0 / 52%) 100%),
-    #050505 url("./assets/title-screen.webp") center / auto 100% no-repeat;
+    #050505 url("./assets/title-screen-vertical.png") center / auto 100% no-repeat;
   transition:
     opacity 300ms ease,
     visibility 300ms ease;
@@ -40,6 +40,7 @@ body {
   inset: 0;
   content: "";
   background:
+    linear-gradient(180deg, rgb(0 0 0 / 34%) 0 22%, rgb(0 0 0 / 0%) 42% 70%, rgb(0 0 0 / 38%) 100%),
     radial-gradient(ellipse at center 31%, rgb(0 0 0 / 0%) 0 33%, rgb(0 0 0 / 38%) 78%),
     linear-gradient(90deg, rgb(0 0 0 / 64%), rgb(0 0 0 / 0%) 22% 78%, rgb(0 0 0 / 64%));
   pointer-events: none;
@@ -79,7 +80,7 @@ body {
 }
 
 .start-title__the,
-.start-title__hunk {
+.start-title__rank {
   display: block;
 }
 
@@ -87,14 +88,14 @@ body {
   font-size: clamp(3rem, 8.4svh, 6.5rem);
 }
 
-.start-title__hunk {
+.start-title__rank {
   margin-top: -0.08em;
   font-size: clamp(4.85rem, 13.6svh, 9.5rem);
 }
 
 .start-button {
   position: absolute;
-  top: 56svh;
+  top: 39svh;
   left: 50%;
   min-width: 0;
   margin-top: 0;
@@ -146,12 +147,12 @@ body {
     font-size: clamp(2.8rem, 7.2svh, 4.6rem);
   }
 
-  .start-title__hunk {
+  .start-title__rank {
     font-size: clamp(4.15rem, 10.5svh, 5.65rem);
   }
 
   .start-button {
-    top: 55svh;
+    top: 40svh;
     font-size: clamp(1.15rem, 2.55svh, 1.45rem);
   }
 }
@@ -166,6 +167,33 @@ body {
   align-items: start;
   gap: 10px;
   width: min(100%, 1180px);
+}
+
+body.is-runtime-static {
+  place-items: stretch;
+  overflow: hidden;
+  padding: 0;
+}
+
+body.is-runtime-static .dev-layout {
+  grid-template-areas: "game";
+  width: 100%;
+  height: 100svh;
+  gap: 0;
+}
+
+body.is-runtime-static .dev-tabs,
+body.is-runtime-static .dev-side-stack {
+  display: none;
+}
+
+body.is-runtime-static .phone-shell {
+  width: 100vw;
+  height: 100svh;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  aspect-ratio: auto;
 }
 
 .dev-tabs {
@@ -726,7 +754,7 @@ body {
 }
 
 .hud span {
-  max-width: 50%;
+  max-width: 34%;
   overflow: hidden;
   padding: 7px 10px;
   font-size: 12px;
@@ -737,6 +765,23 @@ body {
 
 .hud span:last-child {
   color: #e4d383;
+}
+
+.damage-flash {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at center, rgb(255 42 32 / 0%) 0 38%, rgb(255 42 32 / 28%) 100%),
+    linear-gradient(180deg, rgb(255 42 32 / 12%), rgb(255 42 32 / 0%) 42%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+
+.phone-shell.is-player-hit .damage-flash {
+  opacity: 1;
+  transition-duration: 45ms;
 }
 
 .crosshair {

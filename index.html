@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Rank - HUNK 3D</title>
-    <link rel="preload" href="./assets/title-screen.webp" as="image" type="image/webp" />
+    <link rel="preload" href="./assets/title-screen-vertical.png" as="image" type="image/png" />
     <link rel="stylesheet" href="./styles.css" />
     <script type="importmap">
       {
@@ -18,9 +18,9 @@
   <body>
     <div class="start-screen" id="startScreen" role="dialog" aria-modal="true" aria-labelledby="startTitle">
       <div class="start-menu">
-        <h1 class="start-title" id="startTitle" aria-label="The Hunk">
+        <h1 class="start-title" id="startTitle" aria-label="The Rank">
           <span class="start-title__the">The</span>
-          <span class="start-title__hunk">Hunk</span>
+          <span class="start-title__rank">Rank</span>
         </h1>
         <button class="start-button" id="startButton" type="button">GAME START</button>
       </div>
@@ -65,7 +65,7 @@
           aria-controls="devPanelColors"
           data-dev-tab="colors"
           tabindex="-1"
-        >Cores HUNK</button>
+        >Cores do Rank</button>
       </nav>
       <div class="dev-side-stack dev-side-stack--left">
         <aside
@@ -222,6 +222,7 @@
       <main class="phone-shell" aria-label="Rank mobile 3D model viewer">
         <div class="hud" aria-hidden="true">
           <span>Rank</span>
+          <span data-health-hud>Vida 50</span>
           <span data-map-hud>16 x 16 / 4 tiles</span>
         </div>
         <div class="scene" data-scene></div>
@@ -232,6 +233,7 @@
           <span class="crosshair__arm crosshair__arm--left"></span>
           <span class="crosshair__dot"></span>
         </div>
+        <div class="damage-flash" data-damage-flash aria-hidden="true"></div>
         <div class="status" id="status" role="status">Carregando modelo...</div>
       </main>
 
@@ -300,14 +302,14 @@
           role="tabpanel"
           aria-labelledby="devTabColors"
           data-dev-panel="colors"
-          aria-label="Cores do personagem"
+          aria-label="Cores do Rank"
           hidden
         >
           <div class="panel-heading">
-            <span>Cores HUNK</span>
+            <span>Cores do Rank</span>
             <small id="colorStatus" aria-live="polite">Aguardando</small>
           </div>
-          <section class="color-panel" id="colorPanel" aria-label="Paleta do HUNK"></section>
+          <section class="color-panel" id="colorPanel" aria-label="Paleta do Rank"></section>
           <div class="color-actions">
             <button id="resetColorsButton" type="button">Resetar</button>
             <button id="copyColorsButton" type="button">Copiar paleta</button>
