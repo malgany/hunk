@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { clone as cloneSkeleton } from "three/addons/utils/SkeletonUtils.js";
 import { defaultMapConfig } from "./map-config.js";
 
 const sceneElement = document.querySelector("[data-scene]");
@@ -21,6 +22,18 @@ const showTileEdgesInput = document.querySelector("#showTileEdges");
 const showTileEdgesValue = document.querySelector("#showTileEdgesValue");
 const mapCoveredInput = document.querySelector("#mapCovered");
 const mapCoveredValue = document.querySelector("#mapCoveredValue");
+const mapToolButtons = document.querySelectorAll("[data-map-tool]");
+const floorMaterialSelect = document.querySelector("#floorMaterialSelect");
+const wallMaterialSelect = document.querySelector("#wallMaterialSelect");
+const ceilingMaterialSelect = document.querySelector("#ceilingMaterialSelect");
+const floorMaterialPreview = document.querySelector("#floorMaterialPreview");
+const wallMaterialPreview = document.querySelector("#wallMaterialPreview");
+const ceilingMaterialPreview = document.querySelector("#ceilingMaterialPreview");
+const materialPreviewPopover = document.querySelector("#materialPreviewPopover");
+const materialPreviewPopoverImage = document.querySelector("#materialPreviewPopoverImage");
+const materialPreviewPopoverLabel = document.querySelector("#materialPreviewPopoverLabel");
+const devTabButtons = document.querySelectorAll("[data-dev-tab]");
+const devTabPanels = document.querySelectorAll("[data-dev-panel]");
 const cameraStatus = document.querySelector("#cameraStatus");
 const freeCameraInput = document.querySelector("#freeCamera");
 const freeCameraValue = document.querySelector("#freeCameraValue");
@@ -53,15 +66,66 @@ const colorStatus = document.querySelector("#colorStatus");
 const resetColorsButton = document.querySelector("#resetColorsButton");
 const copyColorsButton = document.querySelector("#copyColorsButton");
 const modelUrl = new URL("../assets/HUNK.glb", import.meta.url).href;
+const minionUrl = new URL("../assets/minion.glb", import.meta.url).href;
 const gunPackPath = "../assets/Styloo Guns Asset Pack GLTF FBX V1.1/Normal version Color and NormalMap/GLB/";
+const sewerTextureUrls = {
+  floor: [
+    { id: "concrete-base", label: "Concreto base", url: new URL("../assets/Sewer/Textures/concrete_base.png", import.meta.url).href, repeatX: 1.5, repeatY: 1.5, color: 0x8f8974 },
+    { id: "concrete-base-02", label: "Concreto claro", url: new URL("../assets/Sewer/Textures/concrete_base_02.jpg", import.meta.url).href, repeatX: 1.45, repeatY: 1.45, color: 0x86836f },
+    { id: "debris-02", label: "Entulho", url: new URL("../assets/Sewer/Textures/debris_02.jpg", import.meta.url).href, repeatX: 1.35, repeatY: 1.35, color: 0x7d7966 },
+    { id: "soil-mud", label: "Lama", url: new URL("../assets/Sewer/Textures/soil_mud.jpg", import.meta.url).href, repeatX: 1.75, repeatY: 1.75, color: 0x716b58 },
+    { id: "concrete-dirty-2", label: "Concreto sujo", url: new URL("../assets/Sewer/Textures/concrete_dirty_2.jpg", import.meta.url).href, repeatX: 1.65, repeatY: 1.65, color: 0x8a8368 },
+  ],
+  wall: [
+    { id: "brick-modern-01", label: "Tijolo moderno", url: new URL("../assets/Sewer/Textures/brick_modern_01.jpg", import.meta.url).href, repeatX: 2.4, repeatY: 3.6, color: 0x7d7a68 },
+    { id: "concrete-dirty", label: "Concreto manchado", url: new URL("../assets/Sewer/Textures/concrete_dirty.jpg", import.meta.url).href, repeatX: 1.7, repeatY: 2.6, color: 0x79776b },
+    { id: "concrete-dirty-2", label: "Concreto escuro", url: new URL("../assets/Sewer/Textures/concrete_dirty_2.jpg", import.meta.url).href, repeatX: 1.35, repeatY: 2.2, color: 0x747164 },
+    { id: "metal", label: "Metal", url: new URL("../assets/Sewer/Textures/Metal.jpg", import.meta.url).href, repeatX: 1.6, repeatY: 2.2, color: 0x8b8a82, metalness: 0.18, roughness: 0.82 },
+  ],
+  ceiling: [
+    { id: "bricks", label: "Tijolos", url: new URL("../assets/Sewer/Textures/bricks.jpg", import.meta.url).href, repeatX: 2.1, repeatY: 2.1, color: 0x777465 },
+    { id: "concrete-dirty-2", label: "Concreto escuro", url: new URL("../assets/Sewer/Textures/concrete_dirty_2.jpg", import.meta.url).href, repeatX: 1.45, repeatY: 1.45, color: 0x777263 },
+  ],
+};
+const defaultMapMaterials = {
+  floor: sewerTextureUrls.floor[0].id,
+  wall: sewerTextureUrls.wall[0].id,
+  ceiling: sewerTextureUrls.ceiling[0].id,
+};
+const materialControls = {
+  floor: { select: floorMaterialSelect, preview: floorMaterialPreview },
+  wall: { select: wallMaterialSelect, preview: wallMaterialPreview },
+  ceiling: { select: ceilingMaterialSelect, preview: ceilingMaterialPreview },
+};
+const mapTools = new Set(["tile", "light", "enemy"]);
+const mapDirectionOptions = [
+  { id: "east", x: 1, z: 0 },
+  { id: "southeast", x: 1, z: 1 },
+  { id: "south", x: 0, z: 1 },
+  { id: "southwest", x: -1, z: 1 },
+  { id: "west", x: -1, z: 0 },
+  { id: "northwest", x: -1, z: -1 },
+  { id: "north", x: 0, z: -1 },
+  { id: "northeast", x: 1, z: -1 },
+];
+const defaultMapDirection = "south";
 const mapSize = 16;
 const mapCenter = mapSize / 2;
 const platformTileSize = 5;
 const platformThickness = 0.18;
 const platformTileGap = 0.04;
-const platformWallTilesHigh = 3;
+const platformWallTilesHigh = 2;
 const platformWallHeight = platformTileSize * platformWallTilesHigh;
 const platformWallThickness = 0.32;
+const platformCeilingThickness = 0.2;
+const sewerLightCableLength = 0.68;
+const sewerStageLightColors = [0xffd591, 0xb8ffd6, 0xffc46f, 0xdce7ff, 0xf0ffad, 0xffa985];
+const sewerFillLightDistance = platformTileSize * 3.1;
+const sewerDownLightDistance = platformTileSize * 4.6;
+const sewerFillLightIntensity = 72;
+const sewerDownLightIntensity = 255;
+const sewerMaxShadowCastingSpotLights = 6;
+const sewerReservedFragmentTextureUnits = 6;
 const wallOcclusionOpacity = 0.16;
 const cameraCollisionRadius = 1.05;
 const cameraCollisionWallPadding = 0.42;
@@ -86,22 +150,46 @@ const mapPlayerMagnetRadius = 0.16;
 const anchoredCameraPreset = {
   baseOrbitDegrees: 178,
   cameraOffset: new THREE.Vector3(-4.445, 3.165, -9.843),
-  targetOffset: new THREE.Vector3(0, 2.843, 2.373),
+  targetOffset: new THREE.Vector3(-2.05, 2.843, 2.373),
 };
 const defaultCameraOffset = {
   x: 0.2,
-  y: 0.6,
+  y: 1.2,
   z: 0.2,
 };
 const defaultPlayerAimPitchRadians = THREE.MathUtils.degToRad(7.63);
 const freeCameraMoveSpeed = 12;
 const freeCameraWheelSpeed = 0.018;
-const playerWalkSpeed = 4.2;
-const playerRunSpeed = 7.2;
+const playerWalkSpeed = 5.4;
+const playerRunSpeed = 9.4;
+const playerAimMoveSpeedMultiplier = 0.62;
 const playerCollisionRadius = 0.72;
+const playerWallCollisionPadding = platformWallThickness / 2 + 0.18;
 const playerMouseYawSensitivity = 0.0028;
 const playerMousePitchSensitivity = 0.0022;
+const playerAimMouseSensitivityMultiplier = 0.68;
 const playerMousePitchLimit = THREE.MathUtils.degToRad(22);
+const playerMaxHealth = 50;
+const playerFireInterval = 0.22;
+const projectileSpeed = 42;
+const projectileMaxDistance = 48;
+const projectileBodyDamage = 2;
+const projectileHeadDamage = 10;
+const projectileRadius = 0.08;
+const enemyMaxHealth = 20;
+const enemyVisionDistance = platformTileSize * 3.6;
+const enemyWalkSpeed = 1.35;
+const enemyCollisionRadius = 0.58;
+const enemyAttackRange = 1.65;
+const enemyAttackDamage = 6;
+const enemyAttackCooldown = 1.25;
+const enemyAttackHitTime = 0.42;
+const enemySpawnGroundChance = 0.05;
+const enemyAwakenFloorLongChance = 0.07;
+const enemyAwakenFloorChance = 0.18;
+const enemyHalfHealthFallChance = 0.3;
+const enemyDownedSecondsMin = 1.8;
+const enemyDownedSecondsMax = 3.2;
 const defaultMovementId = "Idle_A";
 const defaultWeaponId = "pew";
 const rogueTextureAtlas = {
@@ -251,7 +339,7 @@ const animationGroups = [
   {
     label: "Combate ranged",
     options: [
-      clip("Ranged_1H_Aiming", true),
+      clip("Ranged_1H_Aiming", false),
       clip("Ranged_1H_Reload"),
       clip("Ranged_1H_Shoot"),
       clip("Ranged_1H_Shooting", true),
@@ -345,6 +433,22 @@ const animationGroups = [
   {
     label: "Combinacao",
     options: [
+      clip("Combo_Walking_A_Ranged_1H_Aiming", true, {
+        label: "Andar + mirar 1H",
+        combo: {
+          lower: "Walking_A",
+          upper: "Ranged_1H_Aiming",
+          upperLoop: false,
+        },
+      }),
+      clip("Combo_Running_B_Ranged_1H_Aiming", true, {
+        label: "Correr B + mirar 1H",
+        combo: {
+          lower: "Running_B",
+          upper: "Ranged_1H_Aiming",
+          upperLoop: false,
+        },
+      }),
       clip("Combo_Walking_A_Ranged_1H_Shooting", true, {
         label: "Andar + tiro 1H",
         combo: {
@@ -378,6 +482,26 @@ const sourceAnimationClips = new Map();
 const weaponCache = new Map();
 const paletteMaterials = new Set();
 const maskAtlasMaterials = new Set();
+const enemyAnimationIds = [
+  "Skeletons_Idle",
+  "Skeletons_Walking",
+  "Skeletons_Awaken_Floor",
+  "Skeletons_Awaken_Floor_Long",
+  "Skeletons_Spawn_Ground",
+  "Skeletons_Death",
+  "Skeletons_Death_Pose",
+  "Skeletons_Death_Resurrect",
+  "EXPERIMENTAL_Medium_Transform",
+  "Melee_Unarmed_Attack_Punch_A",
+  "Melee_1H_Attack_Chop",
+];
+const enemyLoopingAnimations = new Set([
+  "Skeletons_Idle",
+  "Skeletons_Walking",
+  "Skeletons_Death_Pose",
+]);
+const enemyPrimaryAttackAnimation = "Melee_Unarmed_Attack_Punch_A";
+const enemyFallbackAttackAnimation = "Melee_1H_Attack_Chop";
 
 const lowerBodyBones = new Set([
   "upperleg.l",
@@ -424,10 +548,27 @@ let mapEditorState = createInitialMapEditorState();
 let cameraControlState = createCameraControlState();
 let playerControlState = createPlayerControlState();
 let platformGroup = null;
+let enemySourceModel = null;
+let enemyGroup = null;
+let activeEnemies = [];
+let activeProjectiles = [];
 const wallOcclusionRaycaster = new THREE.Raycaster();
 const wallOcclusionTarget = new THREE.Vector3();
 const wallOccluders = new Set();
 const transparentWallOccluders = new Set();
+const enemyLineOfSightRaycaster = new THREE.Raycaster();
+const enemyBoundsBox = new THREE.Box3();
+const enemyBoundsSize = new THREE.Vector3();
+const enemyEyePosition = new THREE.Vector3();
+const enemyMoveDirection = new THREE.Vector3();
+const enemyNextPosition = new THREE.Vector3();
+const enemyPlayerTarget = new THREE.Vector3();
+const enemyProjectileRaycaster = new THREE.Raycaster();
+const projectileDirection = new THREE.Vector3();
+const projectileStartPosition = new THREE.Vector3();
+const projectileEndPosition = new THREE.Vector3();
+const projectileMuzzlePosition = new THREE.Vector3();
+const projectileAimTarget = new THREE.Vector3();
 const cameraCollisionRaycaster = new THREE.Raycaster();
 const cameraCollisionDirection = new THREE.Vector3();
 const cameraCollisionRayDirection = new THREE.Vector3();
@@ -461,7 +602,9 @@ function weapon(id, label, file, options = {}) {
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x151515);
-scene.fog = new THREE.Fog(0x151515, 15, 34);
+
+const projectileGeometry = new THREE.SphereGeometry(projectileRadius, 10, 6);
+const projectileMaterial = new THREE.MeshBasicMaterial({ color: 0xb8fff1 });
 
 const camera = new THREE.PerspectiveCamera(42, 1, 0.05, 120);
 camera.position.set(7, 5.2, 9.5);
@@ -474,6 +617,8 @@ const renderer = new THREE.WebGLRenderer({
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 sceneElement.appendChild(renderer.domElement);
 
@@ -490,12 +635,15 @@ controls.addEventListener("start", () => {
   controls.autoRotate = false;
 });
 
-const ambientLight = new THREE.HemisphereLight(0xf7efd8, 0x24231f, 1.65);
-const keyLight = new THREE.DirectionalLight(0xffedbd, 2.4);
-keyLight.position.set(4.5, 8, 5.5);
-const rimLight = new THREE.DirectionalLight(0xd6e6ff, 0.85);
-rimLight.position.set(-5, 4, -4);
-scene.add(ambientLight, keyLight, rimLight);
+const baseAmbientLight = new THREE.HemisphereLight(0xf7efd8, 0x24231f, 0.62);
+scene.add(baseAmbientLight);
+
+const textureLoader = new THREE.TextureLoader();
+const sewerSurfaceVariants = {
+  floor: sewerTextureUrls.floor.map(loadSewerSurfaceVariant),
+  wall: sewerTextureUrls.wall.map(loadSewerSurfaceVariant),
+  ceiling: sewerTextureUrls.ceiling.map(loadSewerSurfaceVariant),
+};
 
 platformGroup = createPlatform(createAppliedMapSnapshot());
 scene.add(platformGroup);
@@ -505,6 +653,7 @@ const loader = new GLTFLoader();
 populateMovementSelect();
 populateWeaponSelect();
 setupMapEditor();
+setupDevPanelTabs();
 setupCameraControls();
 setupAttachmentControls();
 renderColorPanel();
@@ -514,6 +663,23 @@ setupStartScreen();
 const resizeObserver = new ResizeObserver(resize);
 resizeObserver.observe(sceneElement);
 resize();
+
+function loadSewerSurfaceVariant(config) {
+  return {
+    ...config,
+    texture: loadSewerTexture(config.url, config.repeatX, config.repeatY),
+  };
+}
+
+function loadSewerTexture(url, repeatX = 1, repeatY = 1) {
+  const texture = textureLoader.load(url);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(repeatX, repeatY);
+  texture.anisotropy = 4;
+  return texture;
+}
 
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
@@ -526,6 +692,9 @@ renderer.setAnimationLoop(() => {
   if (mixer) {
     mixer.update(delta);
   }
+
+  updateProjectiles(delta);
+  updateEnemies(delta);
 
   if (cameraControlState.freeCamera) {
     updateFreeCamera(delta);
@@ -578,8 +747,9 @@ async function loadScene() {
     weaponSelect.disabled = true;
     setAttachmentControlsEnabled(false);
 
-    const [modelGltf, ...animationGltfs] = await Promise.all([
+    const [modelGltf, minionGltf, ...animationGltfs] = await Promise.all([
       loadGltf(modelUrl),
+      loadGltf(minionUrl),
       ...animationUrls.map((url) => loadGltf(url)),
     ]);
 
@@ -589,12 +759,15 @@ async function loadScene() {
     scene.add(characterModel);
 
     fitModelToPlatform(characterModel);
-    positionCharacterOnMap(mapEditorState.appliedPlayerPosition);
-    applyPlayerYaw();
+    positionCharacterOnMap(mapEditorState.appliedPlayerPosition, mapEditorState.appliedPlayerDirection);
     heldSlot = findObjectByName(characterModel, activeWeapon.slotName);
     await equipWeapon(activeWeapon.id);
+    enemySourceModel = minionGltf.scene;
+    prepareStaticModel(enemySourceModel);
+    fitEnemyModelToTile(enemySourceModel);
     frameScene();
     setupAnimationMixer(characterModel, animationGltfs);
+    renderAppliedEnemies();
     movementSelect.disabled = false;
     weaponSelect.disabled = false;
     setAttachmentControlsEnabled(true);
@@ -791,10 +964,85 @@ function setupAttachmentControls() {
   });
 }
 
+function setupDevPanelTabs() {
+  if (!devTabButtons.length || !devTabPanels.length) {
+    return;
+  }
+
+  for (const button of devTabButtons) {
+    button.addEventListener("click", () => {
+      setActiveDevPanel(button.dataset.devTab, { focusTab: false });
+    });
+    button.addEventListener("keydown", handleDevTabKeydown);
+  }
+
+  const selectedTab = [...devTabButtons].find((button) => button.getAttribute("aria-selected") === "true")
+    || devTabButtons[0];
+  setActiveDevPanel(selectedTab?.dataset.devTab || "map", { focusTab: false });
+}
+
+function handleDevTabKeydown(event) {
+  const tabs = [...devTabButtons];
+  const currentIndex = tabs.indexOf(event.currentTarget);
+  if (currentIndex < 0) {
+    return;
+  }
+
+  const keyOffsets = {
+    ArrowLeft: -1,
+    ArrowUp: -1,
+    ArrowRight: 1,
+    ArrowDown: 1,
+  };
+  let nextIndex = currentIndex;
+
+  if (event.key in keyOffsets) {
+    event.preventDefault();
+    nextIndex = (currentIndex + keyOffsets[event.key] + tabs.length) % tabs.length;
+  } else if (event.key === "Home") {
+    event.preventDefault();
+    nextIndex = 0;
+  } else if (event.key === "End") {
+    event.preventDefault();
+    nextIndex = tabs.length - 1;
+  } else {
+    return;
+  }
+
+  setActiveDevPanel(tabs[nextIndex].dataset.devTab, { focusTab: true });
+}
+
+function setActiveDevPanel(tabId, { focusTab = false } = {}) {
+  for (const button of devTabButtons) {
+    const isActive = button.dataset.devTab === tabId;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", String(isActive));
+    button.tabIndex = isActive ? 0 : -1;
+    if (isActive && focusTab) {
+      button.focus();
+    }
+  }
+
+  for (const panel of devTabPanels) {
+    const isActive = panel.dataset.devPanel === tabId;
+    panel.hidden = !isActive;
+    panel.classList.toggle("is-active", isActive);
+  }
+
+  if (tabId === "map") {
+    window.requestAnimationFrame(() => {
+      resizeMapEditorCanvas();
+      renderMapEditor();
+    });
+  }
+}
+
 function setupMapEditor() {
   if (!mapCanvas || !mapViewport) {
     return;
   }
+
+  populateMapMaterialControls();
 
   mapCanvas.addEventListener("contextmenu", (event) => {
     event.preventDefault();
@@ -826,6 +1074,28 @@ function setupMapEditor() {
   mapCoveredInput.addEventListener("change", () => {
     setMapBuildOption("isCovered", mapCoveredInput.checked);
   });
+  for (const button of mapToolButtons) {
+    button.addEventListener("click", () => {
+      setMapActiveTool(button.dataset.mapTool);
+    });
+  }
+  for (const [surface, control] of Object.entries(materialControls)) {
+    control.select?.addEventListener("change", () => {
+      setMapMaterial(surface, control.select.value);
+    });
+    control.select?.addEventListener("pointerenter", (event) => {
+      showMaterialPreviewPopover(surface, event.currentTarget);
+    });
+    control.select?.addEventListener("focus", (event) => {
+      showMaterialPreviewPopover(surface, event.currentTarget);
+    });
+    control.select?.addEventListener("pointerleave", hideMaterialPreviewPopover);
+    control.select?.addEventListener("blur", hideMaterialPreviewPopover);
+    control.preview?.addEventListener("pointerenter", (event) => {
+      showMaterialPreviewPopover(surface, event.currentTarget);
+    });
+    control.preview?.addEventListener("pointerleave", hideMaterialPreviewPopover);
+  }
 
   const mapResizeObserver = new ResizeObserver(() => {
     resizeMapEditorCanvas();
@@ -846,8 +1116,14 @@ function setupCameraControls() {
   renderer.domElement.addEventListener("pointerdown", () => {
     renderer.domElement.focus();
   });
+  renderer.domElement.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+  });
   renderer.domElement.addEventListener("pointerdown", handlePlayerPointerDown);
   window.addEventListener("pointerup", handlePlayerPointerUp);
+  window.addEventListener("mouseup", handlePlayerMouseButtonChange);
+  window.addEventListener("blur", clearPlayerMouseButtons);
+  document.addEventListener("visibilitychange", handlePlayerVisibilityChange);
   document.addEventListener("mousemove", handlePlayerPointerMove);
   document.addEventListener("pointerlockchange", handlePlayerPointerLockChange);
   renderer.domElement.addEventListener("wheel", handleCameraWheel, { capture: true, passive: false });
@@ -897,9 +1173,14 @@ function createPlayerControlState() {
   return {
     pressedKeys: new Set(),
     shooting: false,
+    aiming: false,
     yawRadians: 0,
     pitchRadians: defaultPlayerAimPitchRadians,
     pointerLocked: false,
+    maxHealth: playerMaxHealth,
+    health: playerMaxHealth,
+    dead: false,
+    fireCooldown: 0,
   };
 }
 
@@ -908,6 +1189,7 @@ function setFreeCameraEnabled(enabled) {
   cameraControlState.pressedKeys.clear();
   playerControlState.pressedKeys.clear();
   playerControlState.shooting = false;
+  playerControlState.aiming = false;
   controls.autoRotate = false;
   controls.enabled = enabled;
 
@@ -1193,15 +1475,16 @@ function handlePlayerPointerMove(event) {
     return;
   }
 
+  const sensitivityMultiplier = playerControlState.aiming ? playerAimMouseSensitivityMultiplier : 1;
   if (movementX) {
     playerControlState.yawRadians = normalizeRadians(
-      playerControlState.yawRadians - movementX * playerMouseYawSensitivity,
+      playerControlState.yawRadians - movementX * playerMouseYawSensitivity * sensitivityMultiplier,
     );
   }
 
   if (movementY) {
     playerControlState.pitchRadians = THREE.MathUtils.clamp(
-      playerControlState.pitchRadians + movementY * playerMousePitchSensitivity,
+      playerControlState.pitchRadians + movementY * playerMousePitchSensitivity * sensitivityMultiplier,
       -playerMousePitchLimit,
       playerMousePitchLimit,
     );
@@ -1215,29 +1498,83 @@ function handlePlayerPointerMove(event) {
 function handlePlayerPointerDown(event) {
   renderer.domElement.focus();
 
-  if (cameraControlState.freeCamera || event.button !== 0) {
+  if (cameraControlState.freeCamera || playerControlState.dead || (event.button !== 0 && event.button !== 2)) {
     return;
   }
 
   event.preventDefault();
   requestPlayerPointerLock();
-  playerControlState.shooting = true;
-  syncCrosshair();
+  syncPlayerMouseButtons(event);
 }
 
 function handlePlayerPointerUp(event) {
-  if (event.button === 0) {
-    playerControlState.shooting = false;
-    syncCrosshair();
+  if (event.button !== 0 && event.button !== 2) {
+    return;
+  }
+
+  syncPlayerMouseButtons(event);
+}
+
+function handlePlayerMouseButtonChange(event) {
+  if (event.button !== 0 && event.button !== 2) {
+    return;
+  }
+
+  syncPlayerMouseButtons(event);
+}
+
+function handlePlayerVisibilityChange() {
+  if (document.visibilityState === "hidden") {
+    clearPlayerMouseButtons();
   }
 }
 
 function handlePlayerPointerLockChange() {
   playerControlState.pointerLocked = document.pointerLockElement === renderer.domElement;
   if (!playerControlState.pointerLocked) {
-    playerControlState.shooting = false;
+    clearPlayerMouseButtons();
+    return;
   }
+
   syncCrosshair();
+}
+
+function syncPlayerMouseButtons(event) {
+  const buttons = Number.isInteger(event.buttons) ? event.buttons : mouseButtonMaskFromEvent(event);
+  const nextShooting = Boolean(buttons & 1);
+  const nextAiming = Boolean(buttons & 2);
+  const changed = playerControlState.shooting !== nextShooting || playerControlState.aiming !== nextAiming;
+
+  playerControlState.shooting = nextShooting;
+  playerControlState.aiming = nextAiming;
+
+  if (changed) {
+    syncCrosshair();
+  }
+}
+
+function clearPlayerMouseButtons() {
+  const changed = playerControlState.shooting || playerControlState.aiming;
+  playerControlState.shooting = false;
+  playerControlState.aiming = false;
+
+  if (changed) {
+    syncCrosshair();
+  }
+}
+
+function mouseButtonMaskFromEvent(event) {
+  if (event.type.endsWith("down")) {
+    if (event.button === 0) {
+      return 1;
+    }
+
+    if (event.button === 2) {
+      return 2;
+    }
+  }
+
+  return 0;
 }
 
 function requestPlayerPointerLock() {
@@ -1270,22 +1607,199 @@ function updatePlayerControls(delta) {
     return;
   }
 
+  if (playerControlState.dead) {
+    updateCameraAnchorFromCharacter();
+    applyAnchoredCameraFrame(delta);
+    return;
+  }
+
   applyPlayerYaw();
 
   const movement = getPlayerMovementVector();
   const isMoving = movement.lengthSq() > 0.0001;
-  const isRunning = playerControlState.pressedKeys.has("shift");
+  const isRunning = !playerControlState.aiming && playerControlState.pressedKeys.has("shift");
 
   if (isMoving) {
-    const speed = isRunning ? playerRunSpeed : playerWalkSpeed;
+    const baseSpeed = isRunning ? playerRunSpeed : playerWalkSpeed;
+    const speed = playerControlState.aiming ? baseSpeed * playerAimMoveSpeedMultiplier : baseSpeed;
     movement.normalize().multiplyScalar(speed * delta);
     moveCharacterWithCollision(movement);
     syncMapPlayerPositionFromCharacter();
   }
 
-  updatePlayerAnimation(isMoving, isRunning, playerControlState.shooting);
+  updatePlayerAnimation(isMoving, isRunning, playerControlState.shooting, playerControlState.aiming);
+  updatePlayerWeaponFire(delta);
   updateCameraAnchorFromCharacter();
   applyAnchoredCameraFrame(delta);
+}
+
+function updatePlayerWeaponFire(delta) {
+  playerControlState.fireCooldown = Math.max(0, playerControlState.fireCooldown - delta);
+
+  if (!playerControlState.shooting || playerControlState.fireCooldown > 0 || cameraControlState.freeCamera) {
+    return;
+  }
+
+  firePlayerProjectile();
+  playerControlState.fireCooldown = playerFireInterval;
+}
+
+function firePlayerProjectile() {
+  if (!characterModel || playerControlState.dead) {
+    return;
+  }
+
+  camera.getWorldDirection(projectileDirection).normalize();
+  const muzzle = getProjectileMuzzlePosition(projectileMuzzlePosition);
+  projectileAimTarget.copy(camera.position).addScaledVector(projectileDirection, projectileMaxDistance);
+  projectileDirection.copy(projectileAimTarget).sub(muzzle).normalize();
+
+  const projectile = new THREE.Mesh(projectileGeometry, projectileMaterial);
+  projectile.position.copy(muzzle).addScaledVector(projectileDirection, 0.28);
+  projectile.userData.velocity = projectileDirection.clone().multiplyScalar(projectileSpeed);
+  projectile.userData.travelled = 0;
+  projectile.userData.maxDistance = projectileMaxDistance;
+  projectile.name = "PlayerProjectile";
+  scene.add(projectile);
+  activeProjectiles.push(projectile);
+}
+
+function getProjectileMuzzlePosition(target) {
+  if (heldSlot) {
+    heldSlot.getWorldPosition(target);
+    return target;
+  }
+
+  target.copy(characterModel.position);
+  target.y += 2.35;
+  return target;
+}
+
+function updateProjectiles(delta) {
+  if (!activeProjectiles.length) {
+    return;
+  }
+
+  for (let index = activeProjectiles.length - 1; index >= 0; index -= 1) {
+    const projectile = activeProjectiles[index];
+    const velocity = projectile.userData.velocity;
+    if (!velocity) {
+      removeProjectileAt(index);
+      continue;
+    }
+
+    projectileStartPosition.copy(projectile.position);
+    const travelDistance = velocity.length() * delta;
+    projectileEndPosition.copy(projectile.position).addScaledVector(velocity, delta);
+
+    if (resolveProjectileHit(projectile, projectileStartPosition, projectileEndPosition, travelDistance)) {
+      removeProjectileAt(index);
+      continue;
+    }
+
+    projectile.position.copy(projectileEndPosition);
+    projectile.userData.travelled += travelDistance;
+
+    if (projectile.userData.travelled >= projectile.userData.maxDistance) {
+      removeProjectileAt(index);
+    }
+  }
+}
+
+function resolveProjectileHit(projectile, start, end, travelDistance) {
+  const segment = projectileDirection.copy(end).sub(start);
+  const segmentLength = segment.length();
+  if (segmentLength <= 0.0001) {
+    return false;
+  }
+
+  segment.normalize();
+  enemyProjectileRaycaster.set(start, segment);
+  enemyProjectileRaycaster.near = 0;
+  enemyProjectileRaycaster.far = segmentLength + projectileRadius;
+
+  const wallHits = wallOccluders.size
+    ? enemyProjectileRaycaster.intersectObjects([...wallOccluders], false)
+    : [];
+  const closestWallDistance = wallHits[0]?.distance ?? Infinity;
+  const enemyHit = getClosestProjectileEnemyHit(closestWallDistance);
+
+  if (enemyHit) {
+    projectile.position.copy(enemyHit.point);
+    const damage = isProjectileHeadshot(enemyHit.enemy, enemyHit.point, enemyHit.object)
+      ? projectileHeadDamage
+      : projectileBodyDamage;
+    damageEnemy(enemyHit.enemy, damage, { source: "shot" });
+    return true;
+  }
+
+  if (closestWallDistance <= travelDistance + projectileRadius) {
+    projectile.position.copy(wallHits[0].point);
+    return true;
+  }
+
+  return false;
+}
+
+function getClosestProjectileEnemyHit(maxDistance) {
+  let closestHit = null;
+  let closestDistance = maxDistance;
+
+  for (const enemy of activeEnemies) {
+    if (!isEnemyTargetable(enemy)) {
+      continue;
+    }
+
+    const hits = enemyProjectileRaycaster.intersectObject(enemy.model, true);
+    const [hit] = hits;
+    if (hit && hit.distance < closestDistance) {
+      closestDistance = hit.distance;
+      closestHit = {
+        enemy,
+        object: hit.object,
+        point: hit.point,
+        distance: hit.distance,
+      };
+    }
+  }
+
+  return closestHit;
+}
+
+function isProjectileHeadshot(enemy, hitPoint, hitObject) {
+  let object = hitObject;
+  while (object) {
+    if ((object.name || "").toLowerCase().includes("head")) {
+      return true;
+    }
+    object = object.parent;
+  }
+
+  enemyBoundsBox.setFromObject(enemy.model);
+  if (enemyBoundsBox.isEmpty()) {
+    return false;
+  }
+
+  enemyBoundsBox.getSize(enemyBoundsSize);
+  const headLine = enemyBoundsBox.min.y + enemyBoundsSize.y * 0.72;
+  return hitPoint.y >= headLine;
+}
+
+function removeProjectileAt(index) {
+  const [projectile] = activeProjectiles.splice(index, 1);
+  if (!projectile) {
+    return;
+  }
+
+  projectile.removeFromParent();
+}
+
+function clearProjectiles() {
+  for (const projectile of activeProjectiles) {
+    projectile.removeFromParent();
+  }
+
+  activeProjectiles = [];
 }
 
 function getPlayerMovementVector() {
@@ -1333,7 +1847,7 @@ function moveCharacterWithCollision(displacement) {
 }
 
 function canCharacterOccupyWorldPosition(x, z) {
-  const radius = playerCollisionRadius;
+  const radius = playerCollisionRadius + playerWallCollisionPadding;
   const diagonal = radius * 0.7071;
   const sampleOffsets = [
     [0, 0],
@@ -1384,6 +1898,8 @@ function syncMapPlayerPositionFromCharacter() {
 
   mapEditorState.playerPosition = nextPosition;
   mapEditorState.appliedPlayerPosition = { ...nextPosition };
+  mapEditorState.playerDirection = directionFromYaw(playerControlState.yawRadians);
+  mapEditorState.appliedPlayerDirection = mapEditorState.playerDirection;
   renderMapEditor();
   updateMapEditorControls();
 }
@@ -1413,7 +1929,7 @@ function yawFromDirection(direction) {
   return Math.atan2(direction.x, direction.z);
 }
 
-function updatePlayerAnimation(isMoving, isRunning, isShooting) {
+function updatePlayerAnimation(isMoving, isRunning, isShooting, isAiming) {
   if (!mixer) {
     return;
   }
@@ -1423,12 +1939,18 @@ function updatePlayerAnimation(isMoving, isRunning, isShooting) {
     movementId = "Combo_Running_B_Ranged_1H_Shooting";
   } else if (isMoving && isShooting) {
     movementId = "Combo_Walking_A_Ranged_1H_Shooting";
+  } else if (isMoving && isAiming && isRunning) {
+    movementId = "Combo_Running_B_Ranged_1H_Aiming";
+  } else if (isMoving && isAiming) {
+    movementId = "Combo_Walking_A_Ranged_1H_Aiming";
   } else if (isMoving && isRunning) {
     movementId = "Running_B";
   } else if (isMoving) {
     movementId = "Walking_A";
   } else if (isShooting) {
     movementId = "Ranged_1H_Shooting";
+  } else if (isAiming) {
+    movementId = "Ranged_1H_Aiming";
   }
 
   playMovement(movementId);
@@ -1586,6 +2108,10 @@ function isTypingTarget(target) {
 function createInitialMapEditorState() {
   const activeTiles = createDefaultMapTiles();
   const playerPosition = createDefaultMapPlayerPosition(activeTiles);
+  const playerDirection = normalizeMapDirection(defaultMapConfig.playerDirection);
+  const lights = createDefaultMapLights(activeTiles);
+  const enemies = createDefaultMapEnemies(activeTiles);
+  const materials = createDefaultMapMaterials();
   const appliedShowTileEdges = false;
   const appliedIsCovered = true;
 
@@ -1594,6 +2120,16 @@ function createInitialMapEditorState() {
     appliedTiles: cloneTileSet(activeTiles),
     playerPosition,
     appliedPlayerPosition: { ...playerPosition },
+    playerDirection,
+    appliedPlayerDirection: playerDirection,
+    lights,
+    appliedLights: cloneTileSet(lights),
+    enemies,
+    appliedEnemies: cloneMapEnemies(enemies),
+    materials,
+    appliedMaterials: { ...materials },
+    activeTool: "tile",
+    pendingDirection: null,
     hoverTile: null,
     zoom: 1,
     baseCanvasSize: 256,
@@ -1675,14 +2211,106 @@ function createDefaultMapPlayerPosition(activeTiles) {
   return { x: mapCenter, z: mapCenter };
 }
 
+function createDefaultMapLights(activeTiles) {
+  const normalized = new Set();
+  if (!Array.isArray(defaultMapConfig.lights)) {
+    return normalized;
+  }
+
+  for (const light of defaultMapConfig.lights) {
+    const tile = normalizeMapTilePoint(light);
+    if (tile && activeTiles.has(tileKey(tile.x, tile.z))) {
+      normalized.add(tileKey(tile.x, tile.z));
+    }
+  }
+
+  return normalized;
+}
+
+function createDefaultMapEnemies(activeTiles) {
+  if (!Array.isArray(defaultMapConfig.enemies)) {
+    return [];
+  }
+
+  return defaultMapConfig.enemies
+    .map((enemy) => normalizeMapEnemy(enemy, activeTiles))
+    .filter(Boolean);
+}
+
+function createDefaultMapMaterials() {
+  const configuredMaterials = defaultMapConfig.materials || {};
+  return {
+    floor: normalizeMapMaterialId("floor", configuredMaterials.floor),
+    wall: normalizeMapMaterialId("wall", configuredMaterials.wall),
+    ceiling: normalizeMapMaterialId("ceiling", configuredMaterials.ceiling),
+  };
+}
+
+function normalizeMapTilePoint(source) {
+  const point = Array.isArray(source) ? { x: source[0], z: source[1] } : source;
+  const x = Number(point?.x);
+  const z = Number(point?.z);
+
+  if (!Number.isFinite(x) || !Number.isFinite(z)) {
+    return null;
+  }
+
+  return tileFromMapPoint({
+    x: THREE.MathUtils.clamp(x, 0, mapSize - 0.001),
+    z: THREE.MathUtils.clamp(z, 0, mapSize - 0.001),
+  });
+}
+
+function normalizeMapEnemy(enemy, activeTiles = mapEditorState?.activeTiles) {
+  const position = Array.isArray(enemy) ? { x: enemy[0], z: enemy[1] } : enemy;
+  const x = Number(position?.x);
+  const z = Number(position?.z);
+
+  if (!Number.isFinite(x) || !Number.isFinite(z)) {
+    return null;
+  }
+
+  const normalizedPosition = {
+    x: roundMapCoordinate(THREE.MathUtils.clamp(x, 0, mapSize)),
+    z: roundMapCoordinate(THREE.MathUtils.clamp(z, 0, mapSize)),
+  };
+
+  if (activeTiles && !isMapPointInsideTiles(normalizedPosition, activeTiles)) {
+    return null;
+  }
+
+  return {
+    x: normalizedPosition.x,
+    z: normalizedPosition.z,
+    direction: normalizeMapDirection(position?.direction),
+  };
+}
+
+function normalizeMapMaterialId(surface, value) {
+  const variants = sewerTextureUrls[surface] || [];
+  return variants.some((variant) => variant.id === value) ? value : defaultMapMaterials[surface];
+}
+
+function normalizeMapDirection(value) {
+  return mapDirectionOptions.some((direction) => direction.id === value) ? value : defaultMapDirection;
+}
+
 function cloneTileSet(source) {
   return new Set(source);
+}
+
+function cloneMapEnemies(enemies) {
+  return enemies.map((enemy) => ({ ...enemy }));
 }
 
 function createAppliedMapSnapshot() {
   return {
     activeTiles: cloneTileSet(mapEditorState.appliedTiles),
     playerPosition: { ...mapEditorState.appliedPlayerPosition },
+    playerDirection: mapEditorState.appliedPlayerDirection,
+    lights: cloneTileSet(mapEditorState.appliedLights),
+    enemies: cloneMapEnemies(mapEditorState.appliedEnemies),
+    materials: { ...mapEditorState.appliedMaterials },
     showTileEdges: mapEditorState.appliedShowTileEdges,
     isCovered: mapEditorState.appliedIsCovered,
   };
@@ -1694,11 +2322,110 @@ function setMapBuildOption(option, value) {
   }
 
   mapEditorState[option] = value;
+  markMapDirty();
+  renderMapEditor();
+  updateMapEditorControls();
+}
+
+function markMapDirty() {
   mapEditorState.dirty = true;
   mapEditorState.feedbackMessage = null;
   mapEditorState.feedbackIsError = false;
+}
+
+function populateMapMaterialControls() {
+  for (const [surface, control] of Object.entries(materialControls)) {
+    if (!control.select) {
+      continue;
+    }
+
+    control.select.replaceChildren();
+    for (const variant of sewerTextureUrls[surface] || []) {
+      const option = document.createElement("option");
+      option.value = variant.id;
+      option.textContent = variant.label;
+      control.select.append(option);
+    }
+  }
+
+  syncMapMaterialControls();
+}
+
+function setMapActiveTool(tool) {
+  if (!mapTools.has(tool) || mapEditorState.activeTool === tool) {
+    return;
+  }
+
+  mapEditorState.activeTool = tool;
+  mapEditorState.pendingDirection = null;
+  mapCanvas.classList.remove("is-picking-direction");
+  syncMapToolControls();
+  renderMapEditor();
+}
+
+function setMapMaterial(surface, materialId) {
+  const nextMaterialId = normalizeMapMaterialId(surface, materialId);
+  if (mapEditorState.materials[surface] === nextMaterialId) {
+    syncMapMaterialControls();
+    return;
+  }
+
+  mapEditorState.materials[surface] = nextMaterialId;
+  markMapDirty();
   renderMapEditor();
   updateMapEditorControls();
+}
+
+function syncMapToolControls() {
+  for (const button of mapToolButtons) {
+    const isActive = button.dataset.mapTool === mapEditorState.activeTool;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  }
+}
+
+function syncMapMaterialControls() {
+  for (const [surface, control] of Object.entries(materialControls)) {
+    const materialId = normalizeMapMaterialId(surface, mapEditorState.materials[surface]);
+    const variant = getSewerSurfaceVariant(surface, materialId);
+    if (control.select) {
+      control.select.value = materialId;
+    }
+
+    if (control.preview && variant) {
+      control.preview.style.backgroundImage = `url("${variant.url}")`;
+      control.preview.style.backgroundColor = `#${(variant.color ?? 0x555555).toString(16).padStart(6, "0")}`;
+    }
+  }
+}
+
+function showMaterialPreviewPopover(surface, anchor) {
+  if (!materialPreviewPopover || !materialPreviewPopoverImage || !materialPreviewPopoverLabel) {
+    return;
+  }
+
+  const variant = getSewerSurfaceVariant(surface, mapEditorState.materials[surface]);
+  if (!variant) {
+    return;
+  }
+
+  const rect = anchor.getBoundingClientRect();
+  materialPreviewPopoverImage.style.backgroundImage = `url("${variant.url}")`;
+  materialPreviewPopoverImage.style.backgroundColor = `#${(variant.color ?? 0x555555).toString(16).padStart(6, "0")}`;
+  materialPreviewPopoverLabel.textContent = variant.label;
+  materialPreviewPopover.style.left = `${Math.min(rect.right + 10, window.innerWidth - 148)}px`;
+  materialPreviewPopover.style.top = `${Math.min(rect.top, window.innerHeight - 112)}px`;
+  materialPreviewPopover.classList.add("is-visible");
+  materialPreviewPopover.setAttribute("aria-hidden", "false");
+}
+
+function hideMaterialPreviewPopover() {
+  if (!materialPreviewPopover) {
+    return;
+  }
+
+  materialPreviewPopover.classList.remove("is-visible");
+  materialPreviewPopover.setAttribute("aria-hidden", "true");
 }
 
 function resizeMapEditorCanvas() {
@@ -1744,10 +2471,48 @@ function handleMapPointerDown(event) {
   const point = mapPointFromEvent(event);
   const tile = tileFromMapPoint(point);
 
-  mapCanvas.setPointerCapture(event.pointerId);
-  mapEditorState.pointerId = event.pointerId;
+  if (mapEditorState.pendingDirection) {
+    if (event.button === 2) {
+      cancelMapPendingDirection();
+    } else if (event.button === 0) {
+      commitMapPendingDirection(point);
+    }
+
+    return;
+  }
+
+  if (event.button === 0 && isPointerOnMapPlayer(point)) {
+    mapCanvas.setPointerCapture(event.pointerId);
+    mapEditorState.pointerId = event.pointerId;
+    mapEditorState.interactionMode = "drag-player";
+    mapCanvas.classList.add("is-dragging-player");
+    moveMapPlayer(point);
+    return;
+  }
+
+  if (mapEditorState.activeTool === "light") {
+    if (event.button === 2) {
+      setMapLightActive(tile, false);
+    } else if (event.button === 0) {
+      setMapLightActive(tile, true);
+    }
+
+    return;
+  }
+
+  if (mapEditorState.activeTool === "enemy") {
+    if (event.button === 2) {
+      removeMapEnemyAtPoint(point);
+    } else if (event.button === 0) {
+      beginMapEnemyPlacement(tile, point);
+    }
+
+    return;
+  }
 
   if (event.button === 2) {
+    mapCanvas.setPointerCapture(event.pointerId);
+    mapEditorState.pointerId = event.pointerId;
     mapEditorState.interactionMode = "erase";
     setMapTileActive(tile, false);
     return;
@@ -1757,13 +2522,8 @@ function handleMapPointerDown(event) {
     return;
   }
 
-  if (isPointerOnMapPlayer(point)) {
-    mapEditorState.interactionMode = "drag-player";
-    mapCanvas.classList.add("is-dragging-player");
-    moveMapPlayer(point);
-    return;
-  }
-
+  mapCanvas.setPointerCapture(event.pointerId);
+  mapEditorState.pointerId = event.pointerId;
   mapEditorState.interactionMode = "paint";
   setMapTileActive(tile, true);
 }
@@ -1772,6 +2532,11 @@ function handleMapPointerMove(event) {
   const point = mapPointFromEvent(event);
   const tile = tileFromMapPoint(point);
   setMapHoverTile(tile);
+
+  if (mapEditorState.pendingDirection) {
+    updateMapPendingDirection(point);
+    return;
+  }
 
   if (mapEditorState.interactionMode === "drag-player") {
     moveMapPlayer(point);
@@ -1788,16 +2553,19 @@ function handleMapPointerMove(event) {
     return;
   }
 
-  mapCanvas.style.cursor = isPointerOnMapPlayer(point) ? "grab" : "crosshair";
+  mapCanvas.style.cursor = isPointerOnMapPlayer(point) ? "grab" : cursorForMapTool();
 }
 
 function handleMapPointerLeave() {
-  if (!mapEditorState.interactionMode) {
+  if (!mapEditorState.interactionMode && !mapEditorState.pendingDirection) {
     setMapHoverTile(null);
   }
 }
 
 function handleMapPointerUp(event) {
+  const completedInteractionMode = mapEditorState.interactionMode;
+  const point = mapPointFromEvent(event);
+
   if (mapEditorState.pointerId !== null && mapCanvas.hasPointerCapture(mapEditorState.pointerId)) {
     mapCanvas.releasePointerCapture(mapEditorState.pointerId);
   }
@@ -1805,7 +2573,12 @@ function handleMapPointerUp(event) {
   mapEditorState.pointerId = null;
   mapEditorState.interactionMode = null;
   mapCanvas.classList.remove("is-dragging-player");
-  mapCanvas.style.cursor = "crosshair";
+  mapCanvas.style.cursor = cursorForMapTool();
+
+  if (completedInteractionMode === "drag-player") {
+    beginMapPlayerDirectionPick(point);
+  }
+
   updateMapEditorControls();
   renderMapEditor();
 }
@@ -1847,13 +2620,150 @@ function setMapTileActive(tile, active) {
     mapEditorState.activeTiles.add(key);
   } else {
     mapEditorState.activeTiles.delete(key);
+    mapEditorState.lights.delete(key);
+    mapEditorState.enemies = mapEditorState.enemies.filter((enemy) => tileKeyFromMapPoint(enemy) !== key);
   }
 
-  mapEditorState.dirty = true;
-  mapEditorState.feedbackMessage = null;
-  mapEditorState.feedbackIsError = false;
+  markMapDirty();
   renderMapEditor();
   updateMapEditorControls();
+}
+
+function setMapLightActive(tile, active) {
+  const key = tileKey(tile.x, tile.z);
+  if (!mapEditorState.activeTiles.has(key)) {
+    return;
+  }
+
+  const hasLight = mapEditorState.lights.has(key);
+  if (active === hasLight) {
+    return;
+  }
+
+  if (active) {
+    mapEditorState.lights.add(key);
+  } else {
+    mapEditorState.lights.delete(key);
+  }
+
+  markMapDirty();
+  renderMapEditor();
+  updateMapEditorControls();
+}
+
+function beginMapEnemyPlacement(tile, point) {
+  const key = tileKey(tile.x, tile.z);
+  if (!mapEditorState.activeTiles.has(key)) {
+    return;
+  }
+
+  const position = { x: tile.x + 0.5, z: tile.z + 0.5 };
+  mapEditorState.pendingDirection = {
+    kind: "enemy",
+    position,
+    direction: directionFromMapPoints(position, point, defaultMapDirection),
+    mousePoint: point,
+  };
+  mapCanvas.classList.add("is-picking-direction");
+  renderMapEditor();
+  updateMapEditorControls();
+}
+
+function beginMapPlayerDirectionPick(point) {
+  mapEditorState.pendingDirection = {
+    kind: "player",
+    position: { ...mapEditorState.playerPosition },
+    direction: directionFromMapPoints(mapEditorState.playerPosition, point, mapEditorState.playerDirection),
+    mousePoint: point,
+  };
+  mapCanvas.classList.add("is-picking-direction");
+  renderMapEditor();
+}
+
+function updateMapPendingDirection(point) {
+  const pending = mapEditorState.pendingDirection;
+  if (!pending) {
+    return;
+  }
+
+  pending.mousePoint = point;
+  pending.direction = directionFromMapPoints(pending.position, point, pending.direction);
+  renderMapEditor();
+}
+
+function commitMapPendingDirection(point) {
+  const pending = mapEditorState.pendingDirection;
+  if (!pending) {
+    return;
+  }
+
+  const direction = directionFromMapPoints(pending.position, point, pending.direction);
+  if (pending.kind === "player") {
+    mapEditorState.playerDirection = direction;
+  } else if (pending.kind === "enemy") {
+    mapEditorState.enemies.push({
+      x: roundMapCoordinate(pending.position.x),
+      z: roundMapCoordinate(pending.position.z),
+      direction,
+    });
+  }
+
+  mapEditorState.pendingDirection = null;
+  mapCanvas.classList.remove("is-picking-direction");
+  markMapDirty();
+  renderMapEditor();
+  updateMapEditorControls();
+}
+
+function cancelMapPendingDirection() {
+  mapEditorState.pendingDirection = null;
+  mapCanvas.classList.remove("is-picking-direction");
+  renderMapEditor();
+  updateMapEditorControls();
+}
+
+function removeMapEnemyAtPoint(point) {
+  const enemyIndex = findMapEnemyIndexAtPoint(point);
+  if (enemyIndex < 0) {
+    return;
+  }
+
+  mapEditorState.enemies.splice(enemyIndex, 1);
+  markMapDirty();
+  renderMapEditor();
+  updateMapEditorControls();
+}
+
+function findMapEnemyIndexAtPoint(point) {
+  for (let index = mapEditorState.enemies.length - 1; index >= 0; index -= 1) {
+    const enemy = mapEditorState.enemies[index];
+    if (Math.hypot(point.x - enemy.x, point.z - enemy.z) <= 0.48) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function tileKeyFromMapPoint(point) {
+  const tile = tileFromMapPoint(point);
+  return tileKey(tile.x, tile.z);
+}
+
+function cursorForMapTool() {
+  if (mapEditorState.pendingDirection) {
+    return "alias";
+  }
+
+  if (mapEditorState.activeTool === "light") {
+    return "copy";
+  }
+
+  if (mapEditorState.activeTool === "enemy") {
+    return "cell";
+  }
+
+  return "crosshair";
 }
 
 function moveMapPlayer(point) {
@@ -1870,9 +2780,7 @@ function moveMapPlayer(point) {
   }
 
   mapEditorState.playerPosition = nextPosition;
-  mapEditorState.dirty = true;
-  mapEditorState.feedbackMessage = null;
-  mapEditorState.feedbackIsError = false;
+  markMapDirty();
   renderMapEditor();
   updateMapEditorControls();
 }
@@ -1910,6 +2818,46 @@ function isMapPointInsideTiles(position, activeTiles) {
   }
 
   return false;
+}
+
+function directionFromMapPoints(origin, target, fallback = defaultMapDirection) {
+  const dx = target.x - origin.x;
+  const dz = target.z - origin.z;
+  const length = Math.hypot(dx, dz);
+  if (length < 0.05) {
+    return normalizeMapDirection(fallback);
+  }
+
+  let bestDirection = mapDirectionOptions[0];
+  let bestScore = -Infinity;
+  for (const direction of mapDirectionOptions) {
+    const directionLength = Math.hypot(direction.x, direction.z) || 1;
+    const score = (dx / length) * (direction.x / directionLength) + (dz / length) * (direction.z / directionLength);
+    if (score > bestScore) {
+      bestDirection = direction;
+      bestScore = score;
+    }
+  }
+
+  return bestDirection.id;
+}
+
+function getMapDirectionVector(directionId) {
+  return mapDirectionOptions.find((direction) => direction.id === directionId)
+    || mapDirectionOptions.find((direction) => direction.id === defaultMapDirection);
+}
+
+function directionToYaw(directionId) {
+  const direction = getMapDirectionVector(directionId);
+  return Math.atan2(direction.x, direction.z);
+}
+
+function directionFromYaw(yawRadians) {
+  const point = {
+    x: Math.sin(yawRadians),
+    z: Math.cos(yawRadians),
+  };
+  return directionFromMapPoints({ x: 0, z: 0 }, point, defaultMapDirection);
 }
 
 function candidateMapIndices(value) {
@@ -1971,7 +2919,10 @@ function drawMapEditor(ctx, size) {
 
   drawMapLines(ctx, size, cellSize);
   drawMapWallPreview(ctx, cellSize);
+  drawMapLights(ctx, cellSize);
+  drawMapEnemies(ctx, cellSize);
   drawMapHover(ctx, cellSize);
+  drawMapPendingDirection(ctx, cellSize);
   drawMapPlayer(ctx, cellSize);
 }
 
@@ -2034,6 +2985,41 @@ function drawMapWallPreview(ctx, cellSize) {
   }
 }
 
+function drawMapLights(ctx, cellSize) {
+  for (const key of mapEditorState.lights) {
+    const tile = parseTileKey(key);
+    const px = (tile.x + 0.5) * cellSize;
+    const py = (tile.z + 0.5) * cellSize;
+    const radius = THREE.MathUtils.clamp(cellSize * 0.18, 4, 10);
+
+    ctx.save();
+    ctx.shadowColor = "rgba(255, 218, 107, 0.72)";
+    ctx.shadowBlur = Math.max(8, cellSize * 0.42);
+    ctx.fillStyle = "#f2cf62";
+    ctx.beginPath();
+    ctx.arc(px, py, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#fff5bd";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = "#735d25";
+    ctx.fillRect(px - radius * 0.35, py + radius * 0.78, radius * 0.7, radius * 0.42);
+    ctx.restore();
+  }
+}
+
+function drawMapEnemies(ctx, cellSize) {
+  for (const enemy of mapEditorState.enemies) {
+    drawMapActor(ctx, cellSize, enemy, {
+      fill: "#38b66b",
+      stroke: "#c8ffd8",
+      line: "#153d24",
+      radiusScale: 0.24,
+    });
+  }
+}
+
 function drawMapHover(ctx, cellSize) {
   if (!mapEditorState.hoverTile) {
     return;
@@ -2047,24 +3033,85 @@ function drawMapHover(ctx, cellSize) {
   ctx.strokeRect(x * cellSize + 1, z * cellSize + 1, cellSize - 2, cellSize - 2);
 }
 
+function drawMapPendingDirection(ctx, cellSize) {
+  const pending = mapEditorState.pendingDirection;
+  if (!pending) {
+    return;
+  }
+
+  const originX = pending.position.x * cellSize;
+  const originY = pending.position.z * cellSize;
+  const targetX = pending.mousePoint.x * cellSize;
+  const targetY = pending.mousePoint.z * cellSize;
+
+  ctx.save();
+  ctx.setLineDash([5, 5]);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = pending.kind === "enemy" ? "rgba(128, 255, 170, 0.8)" : "rgba(255, 216, 161, 0.85)";
+  ctx.beginPath();
+  ctx.moveTo(originX, originY);
+  ctx.lineTo(targetX, targetY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  drawFacingMarker(ctx, cellSize, pending.position, pending.direction, {
+    color: pending.kind === "enemy" ? "#c8ffd8" : "#ffd8a1",
+    lengthScale: 0.56,
+    width: 3,
+  });
+  ctx.restore();
+}
+
 function drawMapPlayer(ctx, cellSize) {
-  const px = mapEditorState.playerPosition.x * cellSize;
-  const py = mapEditorState.playerPosition.z * cellSize;
-  const radius = THREE.MathUtils.clamp(cellSize * 0.28, 6, 14);
   const valid = isMapPlayerPlacementValid();
+  drawMapActor(ctx, cellSize, { ...mapEditorState.playerPosition, direction: mapEditorState.playerDirection }, {
+    fill: valid ? "#e31925" : "#6c1f1f",
+    stroke: valid ? "#ffd8a1" : "#ffd2c8",
+    line: "#1a0b0c",
+    radiusScale: 0.28,
+    invalid: !valid,
+  });
+}
+
+function drawMapActor(ctx, cellSize, actor, style) {
+  const px = actor.x * cellSize;
+  const py = actor.z * cellSize;
+  const radius = THREE.MathUtils.clamp(cellSize * style.radiusScale, 5, 14);
 
   ctx.save();
   ctx.shadowColor = "rgba(0, 0, 0, 0.62)";
   ctx.shadowBlur = 8;
-  ctx.fillStyle = valid ? "#e31925" : "#6c1f1f";
+  ctx.fillStyle = style.fill;
   ctx.beginPath();
   ctx.arc(px, py, radius, 0, Math.PI * 2);
   ctx.fill();
   ctx.shadowBlur = 0;
-  ctx.lineWidth = valid ? 2 : 3;
-  ctx.strokeStyle = valid ? "#ffd8a1" : "#ffd2c8";
+  ctx.lineWidth = style.invalid ? 3 : 2;
+  ctx.strokeStyle = style.stroke;
   ctx.stroke();
+  drawFacingMarker(ctx, cellSize, actor, actor.direction, {
+    color: style.line,
+    lengthScale: 0.42,
+    width: Math.max(2, radius * 0.22),
+  });
   ctx.restore();
+}
+
+function drawFacingMarker(ctx, cellSize, position, directionId, style) {
+  const direction = getMapDirectionVector(directionId);
+  const length = cellSize * style.lengthScale;
+  const directionLength = Math.hypot(direction.x, direction.z) || 1;
+  const startX = position.x * cellSize;
+  const startY = position.z * cellSize;
+  const endX = startX + (direction.x / directionLength) * length;
+  const endY = startY + (direction.z / directionLength) * length;
+
+  ctx.lineCap = "round";
+  ctx.lineWidth = style.width;
+  ctx.strokeStyle = style.color;
+  ctx.beginPath();
+  ctx.moveTo(startX, startY);
+  ctx.lineTo(endX, endY);
+  ctx.stroke();
 }
 
 async function applyMapEditorState() {
@@ -2075,15 +3122,22 @@ async function applyMapEditorState() {
 
   mapEditorState.appliedTiles = cloneTileSet(mapEditorState.activeTiles);
   mapEditorState.appliedPlayerPosition = { ...mapEditorState.playerPosition };
+  mapEditorState.appliedPlayerDirection = mapEditorState.playerDirection;
+  mapEditorState.appliedLights = cloneTileSet(mapEditorState.lights);
+  mapEditorState.appliedEnemies = cloneMapEnemies(mapEditorState.enemies);
+  mapEditorState.appliedMaterials = { ...mapEditorState.materials };
   mapEditorState.appliedShowTileEdges = mapEditorState.showTileEdges;
   mapEditorState.appliedIsCovered = mapEditorState.isCovered;
+  mapEditorState.pendingDirection = null;
+  mapCanvas.classList.remove("is-picking-direction");
   mapEditorState.dirty = false;
   mapEditorState.persisting = true;
   mapEditorState.feedbackMessage = "Salvando mapa...";
   mapEditorState.feedbackIsError = false;
 
   rebuildPlatformFromAppliedMap();
-  positionCharacterOnMap(mapEditorState.appliedPlayerPosition);
+  positionCharacterOnMap(mapEditorState.appliedPlayerPosition, mapEditorState.appliedPlayerDirection);
+  renderAppliedEnemies();
   frameScene();
   updateMapHud();
   renderMapEditor();
@@ -2129,6 +3183,21 @@ function createAppliedMapConfigPayload() {
       x: roundMapCoordinate(mapEditorState.appliedPlayerPosition.x),
       z: roundMapCoordinate(mapEditorState.appliedPlayerPosition.z),
     },
+    playerDirection: mapEditorState.appliedPlayerDirection,
+    lights: [...mapEditorState.appliedLights]
+      .map((key) => {
+        const tile = parseTileKey(key);
+        return [tile.x, tile.z];
+      })
+      .sort((a, b) => a[1] - b[1] || a[0] - b[0]),
+    enemies: cloneMapEnemies(mapEditorState.appliedEnemies)
+      .sort((a, b) => a.z - b.z || a.x - b.x)
+      .map((enemy) => ({
+        x: roundMapCoordinate(enemy.x),
+        z: roundMapCoordinate(enemy.z),
+        direction: normalizeMapDirection(enemy.direction),
+      })),
+    materials: { ...mapEditorState.appliedMaterials },
     showTileEdges: false,
     isCovered: true,
   };
@@ -2161,17 +3230,21 @@ function updateMapEditorControls() {
   const hasTiles = mapEditorState.activeTiles.size > 0;
   const validPlacement = isMapPlayerPlacementValid();
   mapStatus.textContent = `${mapEditorState.activeTiles.size} tiles`;
-  applyMapButton.disabled = mapEditorState.persisting || !hasTiles || !validPlacement;
+  applyMapButton.disabled = mapEditorState.persisting || !hasTiles || !validPlacement || Boolean(mapEditorState.pendingDirection);
   mapFeedback.classList.toggle("is-error", !hasTiles || !validPlacement || mapEditorState.feedbackIsError);
   showTileEdgesInput.checked = mapEditorState.showTileEdges;
   showTileEdgesValue.textContent = mapEditorState.showTileEdges ? "Sim" : "Nao";
   mapCoveredInput.checked = mapEditorState.isCovered;
   mapCoveredValue.textContent = mapEditorState.isCovered ? "Sim" : "Nao";
+  syncMapToolControls();
+  syncMapMaterialControls();
 
   if (!hasTiles) {
     mapFeedback.textContent = "Sem tiles";
   } else if (!validPlacement) {
     mapFeedback.textContent = "Posicao fora dos tiles";
+  } else if (mapEditorState.pendingDirection) {
+    mapFeedback.textContent = "Clique a direcao";
   } else if (mapEditorState.feedbackMessage) {
     mapFeedback.textContent = mapEditorState.feedbackMessage;
   } else {
@@ -2218,7 +3291,7 @@ function mapTileCenterToWorld(tile) {
   };
 }
 
-function positionCharacterOnMap(position) {
+function positionCharacterOnMap(position, direction = mapEditorState.appliedPlayerDirection) {
   if (!characterModel) {
     return;
   }
@@ -2226,6 +3299,554 @@ function positionCharacterOnMap(position) {
   const worldPosition = mapPointToWorld(position);
   characterModel.position.x = worldPosition.x;
   characterModel.position.z = worldPosition.z;
+  playerControlState.yawRadians = directionToYaw(direction);
+  characterModel.rotation.y = playerControlState.yawRadians;
+}
+
+function renderAppliedEnemies() {
+  clearAppliedEnemies();
+  clearProjectiles();
+
+  if (!enemySourceModel || mapEditorState.appliedEnemies.length === 0) {
+    return;
+  }
+
+  enemyGroup = new THREE.Group();
+  enemyGroup.name = "MapEnemies";
+
+  for (const [index, enemy] of mapEditorState.appliedEnemies.entries()) {
+    const enemyModel = cloneSkeleton(enemySourceModel);
+    const worldPosition = mapPointToWorld(enemy);
+    enemyModel.position.x += worldPosition.x;
+    enemyModel.position.z += worldPosition.z;
+    enemyModel.rotation.y = directionToYaw(enemy.direction);
+    enemyModel.name = "Skeleton";
+    prepareStaticModel(enemyModel);
+    const enemyRuntime = createEnemyRuntime(enemyModel, enemy, index);
+    enemyModel.traverse((node) => {
+      node.userData.enemyRuntime = enemyRuntime;
+    });
+    activeEnemies.push(enemyRuntime);
+    enemyGroup.add(enemyModel);
+  }
+
+  scene.add(enemyGroup);
+}
+
+function clearAppliedEnemies() {
+  for (const enemy of activeEnemies) {
+    enemy.mixer?.stopAllAction();
+  }
+
+  activeEnemies = [];
+
+  if (enemyGroup) {
+    scene.remove(enemyGroup);
+    enemyGroup = null;
+  }
+}
+
+function createEnemyRuntime(model, mapEnemy, index) {
+  const spawnKind = pickEnemySpawnKind();
+  const enemy = {
+    id: index,
+    model,
+    mapEnemy,
+    mixer: new THREE.AnimationMixer(model),
+    actions: new Map(),
+    activeAction: null,
+    activeClipName: null,
+    state: "idle",
+    stateTimer: 0,
+    stateElapsed: 0,
+    health: enemyMaxHealth,
+    maxHealth: enemyMaxHealth,
+    halfHealthHandled: false,
+    canHalfHealthFall: Math.random() < enemyHalfHealthFallChance,
+    spawnKind,
+    specialSpawnGround: spawnKind === "spawn-ground",
+    transformed: false,
+    attackDamage: enemyAttackDamage,
+    attackCooldown: Math.random() * 0.65,
+    attackHitApplied: false,
+    active: true,
+  };
+
+  setupEnemyAnimationActions(enemy);
+  startEnemySpawnAnimation(enemy);
+  return enemy;
+}
+
+function pickEnemySpawnKind() {
+  const roll = Math.random();
+  if (roll < enemySpawnGroundChance) {
+    return "spawn-ground";
+  }
+
+  if (roll < enemySpawnGroundChance + enemyAwakenFloorLongChance) {
+    return "awaken-floor-long";
+  }
+
+  if (roll < enemySpawnGroundChance + enemyAwakenFloorLongChance + enemyAwakenFloorChance) {
+    return "awaken-floor";
+  }
+
+  return "idle";
+}
+
+function setupEnemyAnimationActions(enemy) {
+  for (const clipName of enemyAnimationIds) {
+    const sourceClip = sourceAnimationClips.get(clipName);
+    if (!sourceClip) {
+      continue;
+    }
+
+    const action = enemy.mixer.clipAction(sourceClip);
+    configureEnemyAction(action, clipName);
+    enemy.actions.set(clipName, action);
+  }
+}
+
+function configureEnemyAction(action, clipName) {
+  action.enabled = true;
+  action.timeScale = 1;
+
+  if (enemyLoopingAnimations.has(clipName)) {
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.clampWhenFinished = false;
+  } else {
+    action.setLoop(THREE.LoopOnce, 1);
+    action.clampWhenFinished = true;
+  }
+}
+
+function startEnemySpawnAnimation(enemy) {
+  if (enemy.spawnKind === "spawn-ground") {
+    startEnemyTimedState(enemy, "awakening", "Skeletons_Spawn_Ground", 1.6);
+    return;
+  }
+
+  if (enemy.spawnKind === "awaken-floor-long") {
+    startEnemyTimedState(enemy, "awakening", "Skeletons_Awaken_Floor_Long", 2.2);
+    return;
+  }
+
+  if (enemy.spawnKind === "awaken-floor") {
+    startEnemyTimedState(enemy, "awakening", "Skeletons_Awaken_Floor", 1.5);
+    return;
+  }
+
+  setEnemyLoopState(enemy, "idle", "Skeletons_Idle");
+}
+
+function updateEnemies(delta) {
+  if (!activeEnemies.length) {
+    return;
+  }
+
+  for (const enemy of activeEnemies) {
+    enemy.mixer?.update(delta);
+
+    if (enemy.state === "dead") {
+      continue;
+    }
+
+    updateEnemyState(enemy, delta);
+  }
+}
+
+function updateEnemyState(enemy, delta) {
+  if (isEnemyTimedState(enemy.state)) {
+    updateEnemyTimedState(enemy, delta);
+    return;
+  }
+
+  if (!characterModel || playerControlState.dead) {
+    setEnemyLoopState(enemy, "idle", "Skeletons_Idle");
+    return;
+  }
+
+  enemy.attackCooldown = Math.max(0, enemy.attackCooldown - delta);
+
+  if (enemy.state === "attacking") {
+    updateEnemyAttack(enemy, delta);
+    return;
+  }
+
+  const canSeePlayer = canEnemySeePlayer(enemy);
+  if (!canSeePlayer) {
+    setEnemyLoopState(enemy, "idle", "Skeletons_Idle");
+    return;
+  }
+
+  const distanceToPlayer = getEnemyDistanceToPlayer(enemy);
+  faceEnemyTowardPlayer(enemy);
+
+  if (distanceToPlayer <= enemyAttackRange && enemy.attackCooldown <= 0) {
+    startEnemyAttack(enemy);
+    return;
+  }
+
+  if (distanceToPlayer > enemyAttackRange * 0.82) {
+    setEnemyLoopState(enemy, "chasing", "Skeletons_Walking");
+    moveEnemyTowardPlayer(enemy, delta, distanceToPlayer);
+  } else {
+    setEnemyLoopState(enemy, "idle", "Skeletons_Idle");
+  }
+}
+
+function isEnemyTimedState(state) {
+  return state === "awakening"
+    || state === "falling"
+    || state === "downed"
+    || state === "resurrecting"
+    || state === "transforming"
+    || state === "dying";
+}
+
+function updateEnemyTimedState(enemy, delta) {
+  enemy.stateElapsed += delta;
+  enemy.stateTimer -= delta;
+
+  if (enemy.state === "falling" && enemy.stateTimer <= 0) {
+    startEnemyDownedState(enemy);
+    return;
+  }
+
+  if (enemy.state === "downed" && enemy.stateTimer <= 0) {
+    startEnemyTimedState(enemy, "resurrecting", "Skeletons_Death_Resurrect", 1.35);
+    return;
+  }
+
+  if (enemy.state === "dying" && enemy.stateTimer <= 0) {
+    enemy.state = "dead";
+    playEnemyAnimation(enemy, "Skeletons_Death_Pose", { loop: true });
+    return;
+  }
+
+  if (
+    (enemy.state === "awakening" || enemy.state === "resurrecting" || enemy.state === "transforming") &&
+    enemy.stateTimer <= 0
+  ) {
+    setEnemyLoopState(enemy, "idle", "Skeletons_Idle", { restart: true });
+  }
+}
+
+function startEnemyDownedState(enemy) {
+  enemy.state = "downed";
+  enemy.stateElapsed = 0;
+  enemy.stateTimer = THREE.MathUtils.lerp(enemyDownedSecondsMin, enemyDownedSecondsMax, Math.random());
+  playEnemyAnimation(enemy, "Skeletons_Death_Pose", { loop: true, restart: true });
+}
+
+function setEnemyLoopState(enemy, state, clipName, options = {}) {
+  if (enemy.state === state && !options.restart) {
+    return;
+  }
+
+  enemy.state = state;
+  enemy.stateTimer = 0;
+  enemy.stateElapsed = 0;
+  enemy.attackHitApplied = false;
+  playEnemyAnimation(enemy, clipName, { loop: true, restart: options.restart });
+}
+
+function startEnemyTimedState(enemy, state, clipName, fallbackDuration) {
+  enemy.state = state;
+  enemy.stateTimer = getEnemyAnimationDuration(enemy, clipName, fallbackDuration);
+  enemy.stateElapsed = 0;
+  enemy.attackHitApplied = false;
+  playEnemyAnimation(enemy, clipName, { loop: false, restart: true });
+}
+
+function playEnemyAnimation(enemy, clipName, { loop = false, restart = false } = {}) {
+  const action = enemy.actions.get(clipName);
+  if (!action) {
+    return false;
+  }
+
+  if (!restart && enemy.activeClipName === clipName) {
+    return true;
+  }
+
+  if (loop) {
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.clampWhenFinished = false;
+  } else {
+    action.setLoop(THREE.LoopOnce, 1);
+    action.clampWhenFinished = true;
+  }
+
+  action.enabled = true;
+  action.paused = false;
+  action.reset().setEffectiveWeight(1).fadeIn(0.12).play();
+
+  if (enemy.activeAction && enemy.activeAction !== action) {
+    enemy.activeAction.fadeOut(0.12);
+  }
+
+  enemy.activeAction = action;
+  enemy.activeClipName = clipName;
+  return true;
+}
+
+function getEnemyAnimationDuration(enemy, clipName, fallbackDuration = 1) {
+  const action = enemy.actions.get(clipName);
+  const duration = action?.getClip?.().duration;
+  return Number.isFinite(duration) && duration > 0 ? duration / Math.max(action.timeScale || 1, 0.001) : fallbackDuration;
+}
+
+function startEnemyAttack(enemy) {
+  const clipName = enemy.actions.has(enemyPrimaryAttackAnimation)
+    ? enemyPrimaryAttackAnimation
+    : enemyFallbackAttackAnimation;
+  const duration = getEnemyAnimationDuration(enemy, clipName, 0.85);
+
+  enemy.state = "attacking";
+  enemy.stateTimer = Math.max(duration, enemyAttackHitTime + 0.12);
+  enemy.stateElapsed = 0;
+  enemy.attackHitApplied = false;
+  faceEnemyTowardPlayer(enemy);
+  playEnemyAnimation(enemy, clipName, { loop: false, restart: true });
+}
+
+function updateEnemyAttack(enemy, delta) {
+  enemy.stateElapsed += delta;
+  enemy.stateTimer -= delta;
+  faceEnemyTowardPlayer(enemy);
+
+  if (!enemy.attackHitApplied && enemy.stateElapsed >= enemyAttackHitTime) {
+    enemy.attackHitApplied = true;
+    if (isPlayerInEnemyAttackReach(enemy)) {
+      damagePlayer(enemy.attackDamage);
+    }
+  }
+
+  if (enemy.stateTimer <= 0) {
+    enemy.attackCooldown = enemyAttackCooldown + Math.random() * 0.35;
+    setEnemyLoopState(enemy, "idle", "Skeletons_Idle", { restart: true });
+  }
+}
+
+function damagePlayer(amount) {
+  if (playerControlState.dead) {
+    return;
+  }
+
+  playerControlState.health = Math.max(0, playerControlState.health - amount);
+  if (playerControlState.health > 0) {
+    return;
+  }
+
+  playerControlState.dead = true;
+  clearPlayerMouseButtons();
+  playMovement("Death_A", { restart: true });
+  setStatus("Voce morreu", "error");
+}
+
+function damageEnemy(enemy, amount, { source = "generic" } = {}) {
+  if (!isEnemyTargetable(enemy)) {
+    return false;
+  }
+
+  const previousHealth = enemy.health;
+  enemy.health = Math.max(0, enemy.health - amount);
+
+  if (enemy.health <= 0) {
+    killEnemy(enemy);
+    return true;
+  }
+
+  if (source === "shot") {
+    handleEnemyShotDamageThreshold(enemy, previousHealth);
+  }
+
+  return true;
+}
+
+function handleEnemyShotDamageThreshold(enemy, previousHealth) {
+  const halfHealth = enemy.maxHealth * 0.5;
+  if (enemy.halfHealthHandled || previousHealth <= halfHealth || enemy.health > halfHealth) {
+    return;
+  }
+
+  enemy.halfHealthHandled = true;
+
+  if (enemy.specialSpawnGround && !enemy.transformed) {
+    transformEnemy(enemy);
+    return;
+  }
+
+  if (enemy.canHalfHealthFall) {
+    knockDownEnemy(enemy);
+  }
+}
+
+function transformEnemy(enemy) {
+  enemy.transformed = true;
+  enemy.health = enemy.maxHealth;
+  enemy.attackDamage = enemyAttackDamage * 2;
+  startEnemyTimedState(enemy, "transforming", "EXPERIMENTAL_Medium_Transform", 1.4);
+}
+
+function knockDownEnemy(enemy) {
+  startEnemyTimedState(enemy, "falling", "Skeletons_Death", 1.1);
+}
+
+function killEnemy(enemy) {
+  enemy.health = 0;
+  enemy.active = false;
+  startEnemyTimedState(enemy, "dying", "Skeletons_Death", 1.1);
+}
+
+function isEnemyTargetable(enemy) {
+  return Boolean(enemy?.active && enemy.state !== "dead" && enemy.state !== "dying");
+}
+
+function canEnemySeePlayer(enemy) {
+  const distanceToPlayer = getEnemyDistanceToPlayer(enemy);
+  if (distanceToPlayer > enemyVisionDistance) {
+    return false;
+  }
+
+  getEnemyEyePosition(enemy, enemyEyePosition);
+  getPlayerTargetPosition(enemyPlayerTarget);
+  const direction = enemyMoveDirection.copy(enemyPlayerTarget).sub(enemyEyePosition);
+  const distance = direction.length();
+  if (distance <= 0.001) {
+    return true;
+  }
+
+  direction.normalize();
+  enemyLineOfSightRaycaster.set(enemyEyePosition, direction);
+  enemyLineOfSightRaycaster.near = 0.05;
+  enemyLineOfSightRaycaster.far = Math.max(0, distance - 0.25);
+
+  const hits = wallOccluders.size
+    ? enemyLineOfSightRaycaster.intersectObjects([...wallOccluders], false)
+    : [];
+  return hits.length === 0;
+}
+
+function getEnemyEyePosition(enemy, target) {
+  enemyBoundsBox.setFromObject(enemy.model);
+  if (enemyBoundsBox.isEmpty()) {
+    target.copy(enemy.model.position);
+    target.y += 1.6;
+    return target;
+  }
+
+  enemyBoundsBox.getSize(enemyBoundsSize);
+  enemyBoundsBox.getCenter(target);
+  target.y = enemyBoundsBox.min.y + enemyBoundsSize.y * 0.68;
+  return target;
+}
+
+function getPlayerTargetPosition(target) {
+  if (!characterModel) {
+    target.set(0, 0, 0);
+    return target;
+  }
+
+  playerAnchorBox.setFromObject(characterModel);
+  if (playerAnchorBox.isEmpty()) {
+    target.copy(characterModel.position);
+    target.y += 2.2;
+    return target;
+  }
+
+  playerAnchorBox.getSize(playerAnchorSize);
+  playerAnchorBox.getCenter(target);
+  target.y = playerAnchorBox.min.y + playerAnchorSize.y * 0.55;
+  return target;
+}
+
+function getEnemyDistanceToPlayer(enemy) {
+  if (!characterModel) {
+    return Infinity;
+  }
+
+  return Math.hypot(
+    characterModel.position.x - enemy.model.position.x,
+    characterModel.position.z - enemy.model.position.z,
+  );
+}
+
+function faceEnemyTowardPlayer(enemy) {
+  if (!characterModel) {
+    return;
+  }
+
+  enemyMoveDirection.set(
+    characterModel.position.x - enemy.model.position.x,
+    0,
+    characterModel.position.z - enemy.model.position.z,
+  );
+
+  if (enemyMoveDirection.lengthSq() > 0.0001) {
+    enemy.model.rotation.y = yawFromDirection(enemyMoveDirection.normalize());
+  }
+}
+
+function moveEnemyTowardPlayer(enemy, delta, distanceToPlayer) {
+  enemyMoveDirection.set(
+    characterModel.position.x - enemy.model.position.x,
+    0,
+    characterModel.position.z - enemy.model.position.z,
+  );
+
+  if (enemyMoveDirection.lengthSq() <= 0.0001) {
+    return;
+  }
+
+  enemyMoveDirection.normalize();
+  const step = Math.min(enemyWalkSpeed * delta, Math.max(0, distanceToPlayer - enemyAttackRange * 0.78));
+  enemyNextPosition.copy(enemy.model.position).addScaledVector(enemyMoveDirection, step);
+  moveEnemyWithCollision(enemy, enemyNextPosition.x, enemyNextPosition.z);
+}
+
+function moveEnemyWithCollision(enemy, nextX, nextZ) {
+  if (canEnemyOccupyWorldPosition(nextX, nextZ)) {
+    enemy.model.position.x = nextX;
+    enemy.model.position.z = nextZ;
+    return;
+  }
+
+  if (canEnemyOccupyWorldPosition(nextX, enemy.model.position.z)) {
+    enemy.model.position.x = nextX;
+  }
+
+  if (canEnemyOccupyWorldPosition(enemy.model.position.x, nextZ)) {
+    enemy.model.position.z = nextZ;
+  }
+}
+
+function canEnemyOccupyWorldPosition(x, z) {
+  const radius = enemyCollisionRadius + playerWallCollisionPadding;
+  const diagonal = radius * 0.7071;
+  const sampleOffsets = [
+    [0, 0],
+    [radius, 0],
+    [-radius, 0],
+    [0, radius],
+    [0, -radius],
+    [diagonal, diagonal],
+    [-diagonal, diagonal],
+    [diagonal, -diagonal],
+    [-diagonal, -diagonal],
+  ];
+
+  for (const [offsetX, offsetZ] of sampleOffsets) {
+    if (!isWorldPointOnAppliedTile(x + offsetX, z + offsetZ)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function isPlayerInEnemyAttackReach(enemy) {
+  return getEnemyDistanceToPlayer(enemy) <= enemyAttackRange && canEnemySeePlayer(enemy);
 }
 
 function disposeObject3D(object) {
@@ -2833,8 +4454,8 @@ function setupCombinationActions() {
 
     const lowerAction = mixer.clipAction(lowerClip);
     const upperAction = mixer.clipAction(upperClip);
-    configureAction(lowerAction, option);
-    configureAction(upperAction, option);
+    configureAction(lowerAction, { ...option, loop: option.combo.lowerLoop ?? option.loop });
+    configureAction(upperAction, { ...option, loop: option.combo.upperLoop ?? option.loop });
     animationActions.set(option.id, { actions: [lowerAction, upperAction] });
   }
 }
@@ -2915,28 +4536,32 @@ function formatClipLabel(clipName) {
 function createPlatform(mapSnapshot) {
   const platform = new THREE.Group();
   platform.name = "TileMapPlatform";
+  const materialSelection = {
+    floor: normalizeMapMaterialId("floor", mapSnapshot.materials?.floor),
+    wall: normalizeMapMaterialId("wall", mapSnapshot.materials?.wall),
+    ceiling: normalizeMapMaterialId("ceiling", mapSnapshot.materials?.ceiling),
+  };
   const tileSize = mapSnapshot.showTileEdges ? platformTileSize - platformTileGap : platformTileSize;
   const tileGeometry = new THREE.BoxGeometry(
     tileSize,
     platformThickness,
     tileSize,
   );
-  const tileMaterial = new THREE.MeshStandardMaterial({
-    color: 0x5d5a46,
-    roughness: 0.86,
-    metalness: 0.02,
-  });
 
   for (const key of mapSnapshot.activeTiles) {
     const tile = parseTileKey(key);
     const worldCenter = mapTileCenterToWorld(tile);
+    const tileMaterial = createSewerSurfaceMaterial("floor", materialSelection.floor);
     const tileMesh = new THREE.Mesh(tileGeometry, tileMaterial);
     tileMesh.position.set(worldCenter.x, -platformThickness / 2, worldCenter.z);
+    configureShadowMesh(tileMesh, { cast: false, receive: true });
     platform.add(tileMesh);
   }
 
   const seams = mapSnapshot.showTileEdges ? createPlatformSeamLines(mapSnapshot.activeTiles) : null;
-  const walls = mapSnapshot.isCovered ? createPlatformWalls(mapSnapshot.activeTiles) : null;
+  const walls = mapSnapshot.isCovered ? createPlatformWalls(mapSnapshot.activeTiles, materialSelection.wall) : null;
+  const ceiling = mapSnapshot.isCovered ? createPlatformCeiling(mapSnapshot.activeTiles, materialSelection.ceiling) : null;
+  const lights = mapSnapshot.isCovered ? createSewerStageLights(mapSnapshot) : null;
 
   if (seams) {
     platform.add(seams);
@@ -2946,7 +4571,221 @@ function createPlatform(mapSnapshot) {
     platform.add(walls);
   }
 
+  if (ceiling) {
+    platform.add(ceiling);
+  }
+
+  if (lights) {
+    platform.add(lights);
+  }
+
   return platform;
+}
+
+function createSewerSurfacePlan(activeTiles) {
+  return {
+    floorAreaSeeds: createFloorAreaSeeds(activeTiles),
+  };
+}
+
+function createFloorAreaSeeds(activeTiles) {
+  const areaSeeds = new Map();
+  const visited = new Set();
+  const sortedKeys = [...activeTiles].sort((a, b) => {
+    const tileA = parseTileKey(a);
+    const tileB = parseTileKey(b);
+    return tileA.z - tileB.z || tileA.x - tileB.x;
+  });
+
+  for (const key of sortedKeys) {
+    if (visited.has(key)) {
+      continue;
+    }
+
+    const startTile = parseTileKey(key);
+    const zoneKind = getFloorZoneKind(activeTiles, startTile);
+    const queue = [startTile];
+    const areaKeys = [];
+    const bounds = {
+      minX: startTile.x,
+      maxX: startTile.x,
+      minZ: startTile.z,
+      maxZ: startTile.z,
+    };
+    visited.add(key);
+
+    while (queue.length > 0) {
+      const tile = queue.shift();
+      const currentKey = tileKey(tile.x, tile.z);
+      areaKeys.push(currentKey);
+      bounds.minX = Math.min(bounds.minX, tile.x);
+      bounds.maxX = Math.max(bounds.maxX, tile.x);
+      bounds.minZ = Math.min(bounds.minZ, tile.z);
+      bounds.maxZ = Math.max(bounds.maxZ, tile.z);
+
+      for (const neighbor of getCardinalNeighborTiles(tile)) {
+        const neighborKey = tileKey(neighbor.x, neighbor.z);
+        if (
+          visited.has(neighborKey) ||
+          !activeTiles.has(neighborKey) ||
+          getFloorZoneKind(activeTiles, neighbor) !== zoneKind
+        ) {
+          continue;
+        }
+
+        visited.add(neighborKey);
+        queue.push(neighbor);
+      }
+    }
+
+    const seed = [
+      "floor-area",
+      zoneKind,
+      bounds.minX,
+      bounds.maxX,
+      bounds.minZ,
+      bounds.maxZ,
+      areaKeys.length,
+    ].join(":");
+
+    for (const areaKey of areaKeys) {
+      areaSeeds.set(areaKey, seed);
+    }
+  }
+
+  return areaSeeds;
+}
+
+function getFloorZoneKind(activeTiles, tile) {
+  const north = activeTiles.has(tileKey(tile.x, tile.z - 1));
+  const east = activeTiles.has(tileKey(tile.x + 1, tile.z));
+  const south = activeTiles.has(tileKey(tile.x, tile.z + 1));
+  const west = activeTiles.has(tileKey(tile.x - 1, tile.z));
+  const neighborCount = Number(north) + Number(east) + Number(south) + Number(west);
+  const horizontalRun = countTileRun(activeTiles, tile, "x");
+  const verticalRun = countTileRun(activeTiles, tile, "z");
+
+  if (neighborCount <= 2) {
+    return horizontalRun >= verticalRun ? "corridor-x" : "corridor-z";
+  }
+
+  if (
+    neighborCount === 3 &&
+    Math.max(horizontalRun, verticalRun) >= 4 &&
+    Math.abs(horizontalRun - verticalRun) >= 2
+  ) {
+    return horizontalRun > verticalRun ? "corridor-x" : "corridor-z";
+  }
+
+  return "room";
+}
+
+function countTileRun(activeTiles, tile, axis) {
+  const step = axis === "x" ? { x: 1, z: 0 } : { x: 0, z: 1 };
+  let count = 1;
+
+  for (const direction of [-1, 1]) {
+    let x = tile.x + step.x * direction;
+    let z = tile.z + step.z * direction;
+    while (activeTiles.has(tileKey(x, z))) {
+      count += 1;
+      x += step.x * direction;
+      z += step.z * direction;
+    }
+  }
+
+  return count;
+}
+
+function getCardinalNeighborTiles(tile) {
+  return [
+    { x: tile.x, z: tile.z - 1 },
+    { x: tile.x + 1, z: tile.z },
+    { x: tile.x, z: tile.z + 1 },
+    { x: tile.x - 1, z: tile.z },
+  ];
+}
+
+function createSewerSurfaceMaterial(surface, materialId) {
+  const variant = getSewerSurfaceVariant(surface, materialId);
+  return new THREE.MeshStandardMaterial({
+    color: variant.color ?? 0xffffff,
+    map: variant.texture,
+    roughness: variant.roughness ?? 0.94,
+    metalness: variant.metalness ?? 0.02,
+  });
+}
+
+function configureShadowMesh(mesh, { cast = true, receive = true } = {}) {
+  mesh.castShadow = cast;
+  mesh.receiveShadow = receive;
+  return mesh;
+}
+
+function configureSewerLightShadow(light, {
+  mapSize = 1024,
+  near = 0.2,
+  far = sewerDownLightDistance,
+  bias = -0.0002,
+  normalBias = 0.035,
+} = {}) {
+  light.castShadow = true;
+  light.shadow.mapSize.set(mapSize, mapSize);
+  light.shadow.camera.near = near;
+  light.shadow.camera.far = far;
+  light.shadow.bias = bias;
+  light.shadow.normalBias = normalBias;
+  light.shadow.camera.updateProjectionMatrix?.();
+  return light;
+}
+
+function getSewerShadowLightLimit() {
+  const maxTextureUnits = renderer.capabilities?.maxTextures ?? 16;
+  const availableShadowUnits = maxTextureUnits - sewerReservedFragmentTextureUnits;
+  return Math.max(0, Math.min(sewerMaxShadowCastingSpotLights, availableShadowUnits));
+}
+
+function createSewerShadowLightIndexSet(lightTiles, focalPoint = null) {
+  const shadowLightLimit = getSewerShadowLightLimit();
+  if (shadowLightLimit <= 0 || lightTiles.length === 0) {
+    return new Set();
+  }
+
+  const focalX = Number.isFinite(focalPoint?.x) ? focalPoint.x : mapCenter;
+  const focalZ = Number.isFinite(focalPoint?.z) ? focalPoint.z : mapCenter;
+  return new Set(
+    lightTiles
+      .map((tile, index) => ({
+        index,
+        distance: (tile.x + 0.5 - focalX) ** 2 + (tile.z + 0.5 - focalZ) ** 2,
+      }))
+      .sort((a, b) => a.distance - b.distance || a.index - b.index)
+      .slice(0, shadowLightLimit)
+      .map(({ index }) => index),
+  );
+}
+
+function getSewerSurfaceVariant(surface, materialId) {
+  const variants = sewerSurfaceVariants[surface] || sewerSurfaceVariants.floor;
+  return variants.find((variant) => variant.id === materialId) || variants[0];
+}
+
+function pickSewerSurfaceVariant(surface, seed) {
+  const variants = sewerSurfaceVariants[surface] || sewerSurfaceVariants.floor;
+  const hash = hashSurfaceSeed(seed);
+  return variants[hash % variants.length];
+}
+
+function hashSurfaceSeed(seed) {
+  const text = String(seed);
+  let hash = 2166136261;
+
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return hash >>> 0;
 }
 
 function createPlatformSeamLines(activeTiles) {
@@ -2975,15 +4814,31 @@ function createPlatformSeamLines(activeTiles) {
   return new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0xe6d078 }));
 }
 
-function createPlatformWalls(activeTiles) {
+function createPlatformCeiling(activeTiles, materialId) {
+  const ceiling = new THREE.Group();
+  ceiling.name = "SewerCeiling";
+  const ceilingGeometry = new THREE.BoxGeometry(
+    platformTileSize,
+    platformCeilingThickness,
+    platformTileSize,
+  );
+
+  for (const key of activeTiles) {
+    const tile = parseTileKey(key);
+    const center = mapTileCenterToWorld(tile);
+    const ceilingMaterial = createSewerSurfaceMaterial("ceiling", materialId);
+    const ceilingTile = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
+    ceilingTile.position.set(center.x, platformWallHeight + platformCeilingThickness / 2, center.z);
+    configureShadowMesh(ceilingTile);
+    ceiling.add(ceilingTile);
+  }
+
+  return ceiling;
+}
+
+function createPlatformWalls(activeTiles, materialId) {
   const walls = new THREE.Group();
   walls.name = "PerimeterWalls";
-  const horizontalWallMaterial = new THREE.MeshStandardMaterial({
-    color: 0x343228,
-    roughness: 0.9,
-    metalness: 0.01,
-  });
-  const verticalWallMaterial = horizontalWallMaterial.clone();
   const horizontalWallGeometry = new THREE.BoxGeometry(
     platformTileSize,
     platformWallHeight,
@@ -3005,28 +4860,28 @@ function createPlatformWalls(activeTiles) {
     const y = platformWallHeight / 2;
 
     if (!activeTiles.has(tileKey(tile.x, tile.z - 1))) {
-      const wall = new THREE.Mesh(horizontalWallGeometry, horizontalWallMaterial.clone());
+      const wall = createPlatformWallMesh(horizontalWallGeometry, materialId);
       wall.userData.occludesCharacter = true;
       wall.position.set(center.x, y, minZ);
       walls.add(wall);
     }
 
     if (!activeTiles.has(tileKey(tile.x + 1, tile.z))) {
-      const wall = new THREE.Mesh(verticalWallGeometry, verticalWallMaterial.clone());
+      const wall = createPlatformWallMesh(verticalWallGeometry, materialId);
       wall.userData.occludesCharacter = true;
       wall.position.set(maxX, y, center.z);
       walls.add(wall);
     }
 
     if (!activeTiles.has(tileKey(tile.x, tile.z + 1))) {
-      const wall = new THREE.Mesh(horizontalWallGeometry, horizontalWallMaterial.clone());
+      const wall = createPlatformWallMesh(horizontalWallGeometry, materialId);
       wall.userData.occludesCharacter = true;
       wall.position.set(center.x, y, maxZ);
       walls.add(wall);
     }
 
     if (!activeTiles.has(tileKey(tile.x - 1, tile.z))) {
-      const wall = new THREE.Mesh(verticalWallGeometry, verticalWallMaterial.clone());
+      const wall = createPlatformWallMesh(verticalWallGeometry, materialId);
       wall.userData.occludesCharacter = true;
       wall.position.set(minX, y, center.z);
       walls.add(wall);
@@ -3036,15 +4891,231 @@ function createPlatformWalls(activeTiles) {
   if (walls.children.length === 0) {
     horizontalWallGeometry.dispose();
     verticalWallGeometry.dispose();
-    horizontalWallMaterial.dispose();
-    verticalWallMaterial.dispose();
     return null;
   }
 
-  horizontalWallMaterial.dispose();
-  verticalWallMaterial.dispose();
-
   return walls;
+}
+
+function createPlatformWallMesh(geometry, materialId) {
+  return configureShadowMesh(
+    new THREE.Mesh(geometry, createSewerSurfaceMaterial("wall", materialId)),
+  );
+}
+
+function getWallRunSeed(activeTiles, tile, side) {
+  if (side === "north" || side === "south") {
+    let startX = tile.x;
+    let endX = tile.x;
+
+    while (hasBoundaryWall(activeTiles, { x: startX - 1, z: tile.z }, side)) {
+      startX -= 1;
+    }
+
+    while (hasBoundaryWall(activeTiles, { x: endX + 1, z: tile.z }, side)) {
+      endX += 1;
+    }
+
+    const boundaryZ = side === "north" ? tile.z : tile.z + 1;
+    return ["wall-run-x", side, boundaryZ, startX, endX].join(":");
+  }
+
+  let startZ = tile.z;
+  let endZ = tile.z;
+
+  while (hasBoundaryWall(activeTiles, { x: tile.x, z: startZ - 1 }, side)) {
+    startZ -= 1;
+  }
+
+  while (hasBoundaryWall(activeTiles, { x: tile.x, z: endZ + 1 }, side)) {
+    endZ += 1;
+  }
+
+  const boundaryX = side === "west" ? tile.x : tile.x + 1;
+  return ["wall-run-z", side, boundaryX, startZ, endZ].join(":");
+}
+
+function hasBoundaryWall(activeTiles, tile, side) {
+  if (!activeTiles.has(tileKey(tile.x, tile.z))) {
+    return false;
+  }
+
+  const neighbor = {
+    north: { x: tile.x, z: tile.z - 1 },
+    east: { x: tile.x + 1, z: tile.z },
+    south: { x: tile.x, z: tile.z + 1 },
+    west: { x: tile.x - 1, z: tile.z },
+  }[side];
+
+  return !activeTiles.has(tileKey(neighbor.x, neighbor.z));
+}
+
+function createSewerStageLights(mapSnapshot) {
+  const lightTiles = resolveSewerLightTiles(mapSnapshot);
+  if (!lightTiles.length) {
+    return null;
+  }
+
+  const group = new THREE.Group();
+  group.name = "SewerStageLights";
+  const shadowLightIndexes = createSewerShadowLightIndexSet(lightTiles, mapSnapshot.playerPosition);
+  const fixtureGeometry = new THREE.CylinderGeometry(0.2, 0.26, 0.14, 14);
+  const bulbGeometry = new THREE.SphereGeometry(0.16, 14, 10);
+  const cableGeometry = new THREE.CylinderGeometry(0.025, 0.025, sewerLightCableLength, 8);
+  const cableMaterial = new THREE.MeshStandardMaterial({
+    color: 0x11100e,
+    roughness: 0.72,
+    metalness: 0.28,
+  });
+
+  lightTiles.forEach((tile, index) => {
+    const center = mapTileCenterToWorld(tile);
+    const color = sewerStageLightColors[index % sewerStageLightColors.length];
+    const fixtureHeight = platformWallHeight - sewerLightCableLength - 0.14;
+    const lightHeight = fixtureHeight - 0.22;
+    const fixtureMaterial = new THREE.MeshStandardMaterial({
+      color: 0x2b2922,
+      roughness: 0.62,
+      metalness: 0.34,
+      emissive: color,
+      emissiveIntensity: 0.2,
+    });
+    const bulbMaterial = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.92,
+    });
+    const light = new THREE.PointLight(color, sewerFillLightIntensity, sewerFillLightDistance, 1.7);
+    const downLight = new THREE.SpotLight(
+      color,
+      sewerDownLightIntensity,
+      sewerDownLightDistance,
+      Math.PI / 4.05,
+      0.68,
+      1.35,
+    );
+    const downLightTarget = new THREE.Object3D();
+    const cable = new THREE.Mesh(cableGeometry, cableMaterial);
+    const fixture = new THREE.Mesh(fixtureGeometry, fixtureMaterial);
+    const bulb = new THREE.Mesh(bulbGeometry, bulbMaterial);
+
+    light.position.set(center.x, lightHeight, center.z);
+    downLight.position.copy(light.position);
+    downLightTarget.position.set(center.x, 0.2, center.z);
+    downLight.target = downLightTarget;
+    cable.position.set(center.x, platformWallHeight - sewerLightCableLength / 2, center.z);
+    fixture.position.set(center.x, fixtureHeight, center.z);
+    bulb.position.copy(light.position);
+    if (shadowLightIndexes.has(index)) {
+      configureSewerLightShadow(downLight, {
+        mapSize: 1024,
+        far: sewerDownLightDistance,
+        bias: -0.00018,
+        normalBias: 0.035,
+      });
+    }
+    configureShadowMesh(cable);
+    configureShadowMesh(fixture);
+    configureShadowMesh(bulb, { cast: false, receive: false });
+    group.add(light, downLight, downLightTarget, cable, fixture, bulb);
+  });
+
+  return group;
+}
+
+function resolveSewerLightTiles(mapSnapshot) {
+  const placedLightTiles = [...(mapSnapshot.lights || [])]
+    .map(parseTileKey)
+    .filter((tile) => mapSnapshot.activeTiles.has(tileKey(tile.x, tile.z)))
+    .sort((a, b) => a.z - b.z || a.x - b.x);
+
+  if (placedLightTiles.length) {
+    return placedLightTiles;
+  }
+
+  return selectSewerLightTiles(mapSnapshot.activeTiles, mapSnapshot.playerPosition);
+}
+
+function selectSewerLightTiles(activeTiles, focalPoint = null) {
+  const tiles = [...activeTiles].map(parseTileKey);
+  if (!tiles.length) {
+    return [];
+  }
+
+  const bounds = tiles.reduce(
+    (current, tile) => ({
+      minX: Math.min(current.minX, tile.x),
+      maxX: Math.max(current.maxX, tile.x),
+      minZ: Math.min(current.minZ, tile.z),
+      maxZ: Math.max(current.maxZ, tile.z),
+    }),
+    { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity },
+  );
+  const center = {
+    x: (bounds.minX + bounds.maxX) / 2,
+    z: (bounds.minZ + bounds.maxZ) / 2,
+  };
+  const focalTile = focalPoint ? tileFromMapPoint(focalPoint) : null;
+  const desiredCount = Math.min(7, Math.max(3, Math.ceil(tiles.length / 28)));
+  const candidatePoints = [
+    focalTile,
+    { x: bounds.minX + 1, z: bounds.minZ + 1 },
+    { x: bounds.maxX - 1, z: bounds.minZ + 1 },
+    { x: bounds.maxX - 1, z: bounds.maxZ - 1 },
+    { x: bounds.minX + 1, z: bounds.maxZ - 1 },
+    center,
+    { x: center.x, z: bounds.minZ + 2 },
+  ].filter(Boolean);
+  const selected = [];
+  const selectedKeys = new Set();
+
+  for (const point of candidatePoints) {
+    const tile = findNearestUnselectedTile(tiles, point, selectedKeys);
+    if (!tile) {
+      continue;
+    }
+
+    selected.push(tile);
+    selectedKeys.add(tileKey(tile.x, tile.z));
+    if (selected.length >= desiredCount) {
+      return selected;
+    }
+  }
+
+  const sortedTiles = [...tiles].sort((a, b) => a.z - b.z || a.x - b.x);
+  const step = Math.max(1, Math.floor(sortedTiles.length / desiredCount));
+  for (let index = 0; index < sortedTiles.length && selected.length < desiredCount; index += step) {
+    const tile = sortedTiles[index];
+    const key = tileKey(tile.x, tile.z);
+    if (selectedKeys.has(key)) {
+      continue;
+    }
+
+    selected.push(tile);
+    selectedKeys.add(key);
+  }
+
+  return selected;
+}
+
+function findNearestUnselectedTile(tiles, point, selectedKeys) {
+  let nearestTile = null;
+  let nearestDistance = Infinity;
+
+  for (const tile of tiles) {
+    const key = tileKey(tile.x, tile.z);
+    if (selectedKeys.has(key)) {
+      continue;
+    }
+
+    const distance = (tile.x - point.x) ** 2 + (tile.z - point.z) ** 2;
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestTile = tile;
+    }
+  }
+
+  return nearestTile;
 }
 
 function prepareModel(model) {
@@ -3082,6 +5153,49 @@ function prepareModel(model) {
       }
     }
   });
+}
+
+function prepareStaticModel(model) {
+  model.traverse((node) => {
+    if (!node.isMesh) {
+      return;
+    }
+
+    node.castShadow = false;
+    node.receiveShadow = false;
+    node.frustumCulled = true;
+
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    for (const material of materials) {
+      if (material) {
+        material.needsUpdate = true;
+      }
+    }
+  });
+}
+
+function fitEnemyModelToTile(model) {
+  const sourceBox = new THREE.Box3().setFromObject(model);
+  const sourceSize = sourceBox.getSize(new THREE.Vector3());
+
+  if (!Number.isFinite(sourceSize.y) || sourceSize.y <= 0) {
+    return;
+  }
+
+  const targetHeight = 3.6;
+  const maxFootprint = Math.max(sourceSize.x, sourceSize.z);
+  let scale = targetHeight / Math.max(sourceSize.y, 0.001);
+  if (maxFootprint * scale > platformTileSize * 0.72) {
+    scale = (platformTileSize * 0.72) / maxFootprint;
+  }
+
+  model.scale.setScalar(THREE.MathUtils.clamp(scale, 0.001, 1000));
+
+  const fittedBox = new THREE.Box3().setFromObject(model);
+  const fittedCenter = fittedBox.getCenter(new THREE.Vector3());
+  model.position.x -= fittedCenter.x;
+  model.position.z -= fittedCenter.z;
+  model.position.y -= fittedBox.min.y;
 }
 
 function cloneMaterialCollection(material) {
@@ -3169,11 +5283,6 @@ function frameModel(modelBox) {
   camera.far = Math.max(120, distance * 2.6);
   camera.updateProjectionMatrix();
 
-  if (scene.fog) {
-    scene.fog.near = Math.max(15, distance * 0.55);
-    scene.fog.far = Math.max(34, distance * 1.7);
-  }
-
   controls.minDistance = Math.max(3.5, Math.min(distance * 0.2, 12));
   controls.maxDistance = Math.max(18, distance * 1.7);
   applyAnchoredCameraFrame();
@@ -3213,7 +5322,9 @@ function syncCrosshair() {
     return;
   }
 
-  const isVisible = Boolean(characterModel && !cameraControlState.freeCamera);
+  const isVisible = Boolean(
+    characterModel && !cameraControlState.freeCamera && playerControlState.aiming && !playerControlState.dead,
+  );
   crosshairElement.classList.toggle("is-visible", isVisible);
   crosshairElement.classList.toggle("is-firing", isVisible && playerControlState.shooting);
 }

@@ -26,8 +26,56 @@
       </div>
     </div>
     <div class="dev-layout">
+      <nav class="dev-tabs" role="tablist" aria-label="Paineis de ajustes">
+        <button
+          class="dev-tab is-active"
+          id="devTabMap"
+          type="button"
+          role="tab"
+          aria-selected="true"
+          aria-controls="devPanelMap"
+          data-dev-tab="map"
+        >Mapa tiles</button>
+        <button
+          class="dev-tab"
+          id="devTabCamera"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="devPanelCamera"
+          data-dev-tab="camera"
+          tabindex="-1"
+        >Camera</button>
+        <button
+          class="dev-tab"
+          id="devTabMovement"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="devPanelMovement"
+          data-dev-tab="movement"
+          tabindex="-1"
+        >Movimento e arma</button>
+        <button
+          class="dev-tab"
+          id="devTabColors"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="devPanelColors"
+          data-dev-tab="colors"
+          tabindex="-1"
+        >Cores HUNK</button>
+      </nav>
       <div class="dev-side-stack dev-side-stack--left">
-        <aside class="dev-panel dev-panel--left tile-editor-panel" aria-label="Editor top-down de tiles">
+        <aside
+          class="dev-panel dev-panel--left tile-editor-panel dev-tab-panel is-active"
+          id="devPanelMap"
+          role="tabpanel"
+          aria-labelledby="devTabMap"
+          data-dev-panel="map"
+          aria-label="Editor top-down de tiles"
+        >
           <div class="panel-heading">
             <span>Mapa tiles</span>
             <small id="mapStatus" aria-live="polite">4 tiles</small>
@@ -56,21 +104,69 @@
                   <span class="toggle-value" id="mapCoveredValue">Sim</span>
                 </span>
               </label>
+              <div class="map-material-controls" aria-label="Materiais do mapa">
+                <label class="material-field" for="floorMaterialSelect">
+                  <span>Chao</span>
+                  <span class="material-select-row">
+                    <select id="floorMaterialSelect"></select>
+                    <span class="material-preview" id="floorMaterialPreview" aria-hidden="true"></span>
+                  </span>
+                </label>
+                <label class="material-field" for="wallMaterialSelect">
+                  <span>Parede</span>
+                  <span class="material-select-row">
+                    <select id="wallMaterialSelect"></select>
+                    <span class="material-preview" id="wallMaterialPreview" aria-hidden="true"></span>
+                  </span>
+                </label>
+                <label class="material-field" for="ceilingMaterialSelect">
+                  <span>Teto</span>
+                  <span class="material-select-row">
+                    <select id="ceilingMaterialSelect"></select>
+                    <span class="material-preview" id="ceilingMaterialPreview" aria-hidden="true"></span>
+                  </span>
+                </label>
+                <div class="material-preview-popover" id="materialPreviewPopover" aria-hidden="true">
+                  <span class="material-preview-popover__image" id="materialPreviewPopoverImage"></span>
+                  <span class="material-preview-popover__label" id="materialPreviewPopoverLabel"></span>
+                </div>
+              </div>
             </div>
-            <div class="map-scroll" id="mapViewport">
-              <canvas
-                class="map-canvas"
-                id="mapCanvas"
-                width="512"
-                height="512"
-                aria-label="Editor de mapa 16 por 16"
-              ></canvas>
+            <div class="map-editor-main">
+              <div class="map-scroll" id="mapViewport">
+                <canvas
+                  class="map-canvas"
+                  id="mapCanvas"
+                  width="512"
+                  height="512"
+                  aria-label="Editor de mapa 16 por 16"
+                ></canvas>
+              </div>
+              <div class="map-tool-palette" aria-label="Ferramentas do mapa">
+                <button class="map-tool-button is-active" type="button" data-map-tool="tile" aria-pressed="true" aria-label="Tile">
+                  <span class="map-tool-icon map-tool-icon--tile" aria-hidden="true"></span>
+                </button>
+                <button class="map-tool-button" type="button" data-map-tool="light" aria-pressed="false" aria-label="Lampada">
+                  <span class="map-tool-icon map-tool-icon--light" aria-hidden="true"></span>
+                </button>
+                <button class="map-tool-button" type="button" data-map-tool="enemy" aria-pressed="false" aria-label="Inimigo">
+                  <span class="map-tool-icon map-tool-icon--enemy" aria-hidden="true"></span>
+                </button>
+              </div>
             </div>
             <p class="map-feedback" id="mapFeedback" aria-live="polite">Mapa aplicado</p>
           </section>
         </aside>
 
-        <aside class="dev-panel dev-panel--left camera-panel" aria-label="Controle de camera">
+        <aside
+          class="dev-panel dev-panel--left camera-panel dev-tab-panel"
+          id="devPanelCamera"
+          role="tabpanel"
+          aria-labelledby="devTabCamera"
+          data-dev-panel="camera"
+          aria-label="Controle de camera"
+          hidden
+        >
           <div class="panel-heading">
             <span>Camera</span>
             <small id="cameraStatus" aria-live="polite">Ancorada</small>
@@ -140,7 +236,15 @@
       </main>
 
       <div class="dev-side-stack dev-side-stack--right">
-        <aside class="dev-panel dev-panel--right" aria-label="Movimento e arma">
+        <aside
+          class="dev-panel dev-panel--right dev-tab-panel"
+          id="devPanelMovement"
+          role="tabpanel"
+          aria-labelledby="devTabMovement"
+          data-dev-panel="movement"
+          aria-label="Movimento e arma"
+          hidden
+        >
           <div class="panel-heading">
             <span>Movimento e arma</span>
             <small>Dev</small>
@@ -190,7 +294,15 @@
           </section>
         </aside>
 
-        <aside class="dev-panel dev-panel--right" aria-label="Cores do personagem">
+        <aside
+          class="dev-panel dev-panel--right dev-tab-panel"
+          id="devPanelColors"
+          role="tabpanel"
+          aria-labelledby="devTabColors"
+          data-dev-panel="colors"
+          aria-label="Cores do personagem"
+          hidden
+        >
           <div class="panel-heading">
             <span>Cores HUNK</span>
             <small id="colorStatus" aria-live="polite">Aguardando</small>

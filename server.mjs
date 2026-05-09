@@ -10,6 +10,18 @@ const host = "127.0.0.1";
 const mapSize = 16;
 const maxJsonBodySize = 64 * 1024;
 const mapConfigPath = path.join(root, "src", "map-config.js");
+const mapDirections = new Set(["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"]);
+const defaultMapDirection = "south";
+const materialOptions = {
+  floor: new Set(["concrete-base", "concrete-base-02", "debris-02", "soil-mud", "concrete-dirty-2"]),
+  wall: new Set(["brick-modern-01", "concrete-dirty", "concrete-dirty-2", "metal"]),
+  ceiling: new Set(["bricks", "concrete-dirty-2"]),
+};
+const defaultMapMaterials = {
+  floor: "concrete-base",
+  wall: "brick-modern-01",
+  ceiling: "bricks",
+};
 
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -120,6 +132,10 @@ function normalizeMapConfig(body) {
   return {
     tiles,
     playerPosition: normalizeMapPlayerPosition(body.playerPosition, tiles),
+    playerDirection: normalizeMapDirection(body.playerDirection),
+    lights: normalizeMapLights(body.lights, tiles),
+    enemies: normalizeMapEnemies(body.enemies, tiles),
+    materials: normalizeMapMaterials(body.materials),
     showTileEdges: false,
     isCovered: true,
   };
@@ -151,6 +167,93 @@ function normalizeMapPlayerPosition(position, tiles) {
   };
 }
 
+function normalizeMapLights(lights, tiles) {
+  if (!Array.isArray(lights)) {
+    return [];
+  }
+
+  const tileKeys = new Set(tiles.map(([tileX, tileZ]) => `${tileX},${tileZ}`));
+  const uniqueLights = new Map();
+
+  for (const light of lights) {
+    const tile = normalizeMapTilePoint(light);
+    if (!tile || !tileKeys.has(`${tile.x},${tile.z}`)) {
+      continue;
+    }
+
+    uniqueLights.set(`${tile.x},${tile.z}`, [tile.x, tile.z]);
+  }
+
+  return [...uniqueLights.values()].sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+}
+
+function normalizeMapEnemies(enemies, tiles) {
+  if (!Array.isArray(enemies)) {
+    return [];
+  }
+
+  const tileKeys = new Set(tiles.map(([tileX, tileZ]) => `${tileX},${tileZ}`));
+  const normalized = [];
+
+  for (const enemy of enemies) {
+    const source = Array.isArray(enemy) ? { x: enemy[0], z: enemy[1] } : enemy;
+    const x = Number(source?.x);
+    const z = Number(source?.z);
+
+    if (!Number.isFinite(x) || !Number.isFinite(z)) {
+      continue;
+    }
+
+    const position = {
+      x: roundMapCoordinate(clamp(x, 0, mapSize)),
+      z: roundMapCoordinate(clamp(z, 0, mapSize)),
+    };
+
+    if (!isMapPointInsideTiles(position, tileKeys)) {
+      continue;
+    }
+
+    normalized.push({
+      x: position.x,
+      z: position.z,
+      direction: normalizeMapDirection(source?.direction),
+    });
+  }
+
+  return normalized.sort((a, b) => a.z - b.z || a.x - b.x);
+}
+
+function normalizeMapTilePoint(source) {
+  const point = Array.isArray(source) ? { x: source[0], z: source[1] } : source;
+  const x = Number(point?.x);
+  const z = Number(point?.z);
+
+  if (!Number.isFinite(x) || !Number.isFinite(z)) {
+    return null;
+  }
+
+  return {
+    x: Math.floor(clamp(x, 0, mapSize - 0.001)),
+    z: Math.floor(clamp(z, 0, mapSize - 0.001)),
+  };
+}
+
+function normalizeMapDirection(direction) {
+  return mapDirections.has(direction) ? direction : defaultMapDirection;
+}
+
+function normalizeMapMaterials(materials) {
+  return {
+    floor: normalizeMaterialId("floor", materials?.floor),
+    wall: normalizeMaterialId("wall", materials?.wall),
+    ceiling: normalizeMaterialId("ceiling", materials?.ceiling),
+  };
+}
+
+function normalizeMaterialId(surface, value) {
+  return materialOptions[surface]?.has(value) ? value : defaultMapMaterials[surface];
+}
+
 function isMapPointInsideTiles(position, tileKeys) {
   for (const x of candidateMapIndices(position.x)) {
     for (const z of candidateMapIndices(position.z)) {
@@ -178,6 +281,10 @@ function candidateMapIndices(value) {
 
 function serializeMapConfig(config) {
   const tileLines = config.tiles.map(([x, z]) => `    [${x}, ${z}],`);
+  const lightLines = config.lights.map(([x, z]) => `    [${x}, ${z}],`);
+  const enemyLines = config.enemies.map((enemy) => (
+    `    { x: ${formatNumber(enemy.x)}, z: ${formatNumber(enemy.z)}, direction: ${JSON.stringify(enemy.direction)} },`
+  ));
 
   return [
     "export const defaultMapConfig = {",
@@ -187,6 +294,18 @@ function serializeMapConfig(config) {
     "  playerPosition: {",
     `    x: ${formatNumber(config.playerPosition.x)},`,
     `    z: ${formatNumber(config.playerPosition.z)},`,
+    "  },",
+    `  playerDirection: ${JSON.stringify(config.playerDirection)},`,
+    "  lights: [",
+    ...lightLines,
+    "  ],",
+    "  enemies: [",
+    ...enemyLines,
+    "  ],",
+    "  materials: {",
+    `    floor: ${JSON.stringify(config.materials.floor)},`,
+    `    wall: ${JSON.stringify(config.materials.wall)},`,
+    `    ceiling: ${JSON.stringify(config.materials.ceiling)},`,
     "  },",
     "  showTileEdges: false,",
     "  isCovered: true,",
