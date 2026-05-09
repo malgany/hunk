@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { clone as cloneSkeleton } from "three/addons/utils/SkeletonUtils.js";
 import { defaultMapConfig } from "./map-config.js";
 
@@ -88,7 +89,9 @@ const copyVisualTuningButton = document.querySelector("#copyVisualTuningButton")
 const modelUrl = new URL("../assets/HUNK.glb", import.meta.url).href;
 const minionUrl = new URL("../assets/minion.glb", import.meta.url).href;
 const runtimeHost = window.location.hostname;
-const runtimeMobileOverride = new URLSearchParams(window.location.search).has("mobile");
+const runtimeSearchParams = new URLSearchParams(window.location.search);
+const runtimeMobileOverride = runtimeSearchParams.has("mobile");
+const runtimePerfOverlayEnabled = runtimeSearchParams.has("perf");
 const runtimeHasCoarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
 const runtimeIsTouchDevice = navigator.maxTouchPoints > 0 || runtimeHasCoarsePointer;
 const runtimeIsMobile = runtimeMobileOverride
@@ -170,7 +173,10 @@ const cameraCloseViewRatioStart = 0.42;
 const cameraCloseViewRatioEnd = 0.18;
 const playerCameraFadeStartDistance = 1.7;
 const playerCameraFadeEndDistance = 0.85;
+const playerCameraFadeStartCollisionRatio = 0.68;
+const playerCameraFadeEndCollisionRatio = 0.32;
 const playerCameraFadeDamping = 11;
+const playerCameraHiddenOpacity = 0.03;
 const cameraCollisionProbeOffsets = [
   [0, 0],
   [1, 0],
@@ -196,11 +202,11 @@ const defaultCameraOffset = {
   y: 1.2,
   z: 0.2,
 };
-const defaultToneMappingExposure = 1;
-const defaultAmbientLightIntensity = 1.05;
-const defaultDirectLightIntensity = 1.75;
-const defaultLightDirectionDegrees = 111;
-const defaultFogDensity = 0;
+const defaultToneMappingExposure = 1.45;
+const defaultAmbientLightIntensity = 2.65;
+const defaultDirectLightIntensity = 0.25;
+const defaultLightDirectionDegrees = 0;
+const defaultFogDensity = 0.014;
 const visualFogColor = 0x0b140f;
 const defaultPlayerAimPitchRadians = THREE.MathUtils.degToRad(7.63);
 const freeCameraMoveSpeed = 12;
@@ -248,6 +254,7 @@ const enemyAwakenFloorChance = 0.18;
 const enemyHalfHealthFallChance = 0.3;
 const enemyDownedSecondsMin = 1.8;
 const enemyDownedSecondsMax = 3.2;
+const performanceProfile = createPerformanceProfile();
 const defaultMovementId = "Idle_A";
 const defaultWeaponId = "pew";
 const rogueTextureAtlas = {
@@ -616,7 +623,9 @@ let activeMuzzleFlashes = [];
 let playerCameraOpacity = 1;
 const wallOcclusionRaycaster = new THREE.Raycaster();
 const wallOcclusionTarget = new THREE.Vector3();
+const wallOcclusionDirection = new THREE.Vector3();
 const wallOccluders = new Set();
+let wallOccluderList = [];
 const transparentWallOccluders = new Set();
 const enemyLineOfSightRaycaster = new THREE.Raycaster();
 const enemyBoundsBox = new THREE.Box3();
@@ -629,6 +638,16 @@ const enemyProjectileRaycaster = new THREE.Raycaster();
 const projectileDirection = new THREE.Vector3();
 const shotImpactPoint = new THREE.Vector3();
 const shotImpactNormal = new THREE.Vector3();
+const projectileEnemyHit = {
+  enemy: null,
+  point: new THREE.Vector3(),
+  normal: new THREE.Vector3(),
+  distance: Infinity,
+  headshot: false,
+};
+const projectileHitPoint = new THREE.Vector3();
+const projectileBodyBox = new THREE.Box3();
+const projectileHeadBox = new THREE.Box3();
 const muzzleFlashPosition = new THREE.Vector3();
 const muzzleFlashWeaponCenter = new THREE.Vector3();
 const muzzleFlashWeaponSize = new THREE.Vector3();
@@ -641,15 +660,26 @@ const cameraCollisionProbePosition = new THREE.Vector3();
 const cameraCloseLookDirection = new THREE.Vector3();
 const cameraCloseLookTarget = new THREE.Vector3();
 const cameraBlendedLookTarget = new THREE.Vector3();
+const anchoredCameraOffsetVector = new THREE.Vector3();
+const anchoredCameraCameraOffset = new THREE.Vector3();
+const anchoredCameraLookOffset = new THREE.Vector3();
+const anchoredCameraManualOffset = new THREE.Vector3();
+const anchoredCameraTargetPosition = new THREE.Vector3();
+const anchoredCameraDesiredPosition = new THREE.Vector3();
+const anchoredCameraYawAxis = new THREE.Vector3(0, 1, 0);
+const anchoredCameraPitchAxis = new THREE.Vector3();
 const playerMoveVector = new THREE.Vector3();
 const playerForwardVector = new THREE.Vector3();
 const playerRightVector = new THREE.Vector3();
-const playerAnchorBox = new THREE.Box3();
-const playerAnchorSize = new THREE.Vector3();
-const playerAnchorCenter = new THREE.Vector3();
 const playerFadeMaterialState = new WeakMap();
 const collisionDebugBoundsBox = new THREE.Box3();
 const collisionDebugBoundsSize = new THREE.Vector3();
+const wallOcclusionHitSet = new Set();
+const impactEffectPool = [];
+const muzzleFlashPool = [];
+let mapEditorSyncTimer = 0;
+let mapEditorSyncPending = false;
+let perfOverlayState = null;
 let sceneLoadStarted = false;
 
 function clip(id, loop = false, options = {}) {
@@ -696,16 +726,16 @@ const camera = new THREE.PerspectiveCamera(42, 1, 0.05, 120);
 camera.position.set(7, 5.2, 9.5);
 
 const renderer = new THREE.WebGLRenderer({
-  antialias: true,
+  antialias: performanceProfile.antialias,
   alpha: false,
   powerPreference: "high-performance",
 });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = defaultToneMappingExposure;
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = performanceProfile.shadowsEnabled;
 renderer.shadowMap.type = THREE.PCFShadowMap;
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+renderer.setPixelRatio(getRuntimePixelRatio());
 sceneElement.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -740,10 +770,13 @@ const sewerMaterialVariants = sewerMaterialOptions.map(loadSewerSurfaceVariant);
 document.body.classList.toggle("is-runtime-local", runtimeIsLocal);
 document.body.classList.toggle("is-runtime-static", runtimeIsStaticHosted);
 document.body.classList.toggle("is-runtime-mobile", runtimeIsMobile);
+document.body.classList.toggle("has-perf-overlay", performanceProfile.perfOverlayEnabled);
 
 platformGroup = createPlatform(createAppliedMapSnapshot());
 scene.add(platformGroup);
 collectWallOccluders(platformGroup);
+prewarmProjectileEffectPools();
+perfOverlayState = createPerfOverlayState();
 
 const loader = new GLTFLoader();
 populateMovementSelect();
@@ -777,7 +810,7 @@ function loadSewerTexture(url, repeatX = 1, repeatY = 1) {
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   texture.repeat.set(repeatX, repeatY);
-  texture.anisotropy = 4;
+  texture.anisotropy = performanceProfile.textureAnisotropy;
   return texture;
 }
 
@@ -793,6 +826,33 @@ function createSewerMaterialOptions(textureGroups) {
   }
 
   return [...materialsById.values()];
+}
+
+function createPerformanceProfile() {
+  const isMobile = runtimeIsMobile;
+
+  return {
+    antialias: !isMobile,
+    maxPixelRatio: isMobile ? 1 : 1.5,
+    shadowsEnabled: !isMobile,
+    maxShadowSpotLights: isMobile ? 0 : sewerMaxShadowCastingSpotLights,
+    maxStageDynamicLights: isMobile ? 5 : Infinity,
+    stageSpotLightsEnabled: !isMobile,
+    effectLightsEnabled: !isMobile,
+    textureAnisotropy: isMobile ? 1 : 4,
+    enemyNearUpdateDistance: enemyVisionDistance * (isMobile ? 1.05 : 1.35),
+    enemyFarMixerInterval: isMobile ? 0.12 : 0.08,
+    enemyLosInterval: isMobile ? 0.22 : 0.12,
+    enemyFarLosInterval: isMobile ? 0.48 : 0.24,
+    mapEditorSyncInterval: isMobile ? 0.18 : 0.08,
+    prewarmImpactEffects: isMobile ? 5 : 8,
+    prewarmMuzzleFlashes: isMobile ? 3 : 5,
+    perfOverlayEnabled: runtimePerfOverlayEnabled,
+  };
+}
+
+function getRuntimePixelRatio() {
+  return Math.min(window.devicePixelRatio || 1, performanceProfile.maxPixelRatio);
 }
 
 const timer = new THREE.Timer();
@@ -811,6 +871,7 @@ renderer.setAnimationLoop((timestamp) => {
 
   updateImpactEffects(delta);
   updateEnemies(delta);
+  updateDeferredMapEditorSync(delta);
 
   if (cameraControlState.freeCamera) {
     updateFreeCamera(delta);
@@ -822,6 +883,7 @@ renderer.setAnimationLoop((timestamp) => {
   updateCollisionDebug();
   updateWallOcclusion();
   renderer.render(scene, camera);
+  updatePerfOverlay(delta, timestamp);
 });
 
 function setupStartScreen() {
@@ -970,6 +1032,32 @@ function applyWeaponTransform() {
   currentHeldItem.position.fromArray(activeWeapon.position);
   currentHeldItem.rotation.fromArray(activeWeapon.rotation);
   currentHeldItem.scale.setScalar(activeWeapon.scale);
+  updateHeldItemMuzzleMetrics();
+}
+
+function updateHeldItemMuzzleMetrics() {
+  if (!currentHeldItem) {
+    return;
+  }
+
+  currentHeldItem.updateWorldMatrix(true, true);
+  muzzleFlashWeaponBox.setFromObject(currentHeldItem);
+  if (muzzleFlashWeaponBox.isEmpty()) {
+    currentHeldItem.userData.muzzleForwardOffset = 0.42;
+    currentHeldItem.userData.muzzleLocalCenter = null;
+    return;
+  }
+
+  muzzleFlashWeaponBox.getCenter(muzzleFlashWeaponCenter);
+  muzzleFlashWeaponBox.getSize(muzzleFlashWeaponSize);
+  currentHeldItem.worldToLocal(muzzleFlashWeaponCenter);
+  currentHeldItem.userData.muzzleLocalCenter = muzzleFlashWeaponCenter.clone();
+  currentHeldItem.userData.muzzleForwardOffset = Math.max(
+    muzzleFlashWeaponSize.x,
+    muzzleFlashWeaponSize.y,
+    muzzleFlashWeaponSize.z,
+    0.28,
+  ) * 0.48;
 }
 
 function findObjectByName(root, objectName) {
@@ -1689,15 +1777,21 @@ function applyAnchoredCameraFrame(delta = 1 / 60) {
     return;
   }
 
-  const offset = new THREE.Vector3(
+  const offset = anchoredCameraManualOffset.set(
     cameraControlState.offset.x,
     cameraControlState.offset.y,
     cameraControlState.offset.z,
   );
-  const cameraOffset = transformAnchoredCameraOffset(anchoredCameraPreset.cameraOffset).add(offset);
-  const targetOffset = transformAnchoredCameraOffset(anchoredCameraPreset.targetOffset);
-  const target = cameraControlState.anchorTarget.clone().add(targetOffset);
-  const desiredPosition = cameraControlState.anchorTarget.clone().add(cameraOffset);
+  const cameraOffset = transformAnchoredCameraOffset(
+    anchoredCameraPreset.cameraOffset,
+    anchoredCameraCameraOffset,
+  ).add(offset);
+  const targetOffset = transformAnchoredCameraOffset(
+    anchoredCameraPreset.targetOffset,
+    anchoredCameraLookOffset,
+  );
+  const target = anchoredCameraTargetPosition.copy(cameraControlState.anchorTarget).add(targetOffset);
+  const desiredPosition = anchoredCameraDesiredPosition.copy(cameraControlState.anchorTarget).add(cameraOffset);
   const resolvedPosition = resolveAnchoredCameraPosition(cameraControlState.anchorTarget, desiredPosition, delta);
   const viewTarget = resolveAnchoredCameraViewTarget(desiredPosition, target, resolvedPosition);
 
@@ -1774,7 +1868,7 @@ function resolveAnchoredCameraPosition(origin, desiredPosition, delta) {
 }
 
 function getWallCollisionCameraRatio(origin, idealDistance) {
-  if (wallOccluders.size === 0) {
+  if (wallOccluderList.length === 0) {
     return 1;
   }
 
@@ -1783,7 +1877,7 @@ function getWallCollisionCameraRatio(origin, idealDistance) {
   cameraCollisionRaycaster.near = 0.05;
   cameraCollisionRaycaster.far = idealDistance;
 
-  const [firstHit] = cameraCollisionRaycaster.intersectObjects([...wallOccluders], false);
+  const [firstHit] = cameraCollisionRaycaster.intersectObjects(wallOccluderList, false);
   if (!firstHit) {
     return 1;
   }
@@ -1865,18 +1959,21 @@ function isCameraPositionInsideAppliedTiles(position, useCollisionRadius) {
   return true;
 }
 
-function transformAnchoredCameraOffset(offset) {
+function transformAnchoredCameraOffset(offset, target = new THREE.Vector3()) {
   const sideMultiplier = cameraControlState.side === "left" ? -1 : 1;
   const rotation = THREE.MathUtils.degToRad(
     cameraControlState.orbitDegrees - anchoredCameraPreset.baseOrbitDegrees,
   ) + playerControlState.yawRadians;
-  const transformedOffset = new THREE.Vector3(offset.x * sideMultiplier, offset.y, offset.z).applyAxisAngle(
-    new THREE.Vector3(0, 1, 0),
-    rotation,
-  );
-  const pitchAxis = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotation);
+  const transformedOffset = anchoredCameraOffsetVector
+    .set(offset.x * sideMultiplier, offset.y, offset.z)
+    .applyAxisAngle(anchoredCameraYawAxis, rotation);
+  const pitchAxis = anchoredCameraPitchAxis
+    .set(1, 0, 0)
+    .applyAxisAngle(anchoredCameraYawAxis, rotation);
 
-  return transformedOffset.applyAxisAngle(pitchAxis, playerControlState.pitchRadians);
+  return target
+    .copy(transformedOffset)
+    .applyAxisAngle(pitchAxis, playerControlState.pitchRadians);
 }
 
 function handleCameraKeyDown(event) {
@@ -2184,10 +2281,12 @@ function tryFirePlayerWeapon() {
     return false;
   }
 
+  const shotStartTime = performanceProfile.perfOverlayEnabled ? performance.now() : 0;
   if (!firePlayerProjectile()) {
     return false;
   }
 
+  recordProjectileShotPerf(shotStartTime);
   playerControlState.shotAnimationTimer = playerShotAnimationDuration;
   playerControlState.fireCooldown = playerFireInterval;
   return true;
@@ -2204,15 +2303,15 @@ function firePlayerProjectile() {
   enemyProjectileRaycaster.near = 0;
   enemyProjectileRaycaster.far = projectileMaxDistance;
 
-  const wallHits = wallOccluders.size
-    ? enemyProjectileRaycaster.intersectObjects([...wallOccluders], false)
+  const wallHits = wallOccluderList.length
+    ? enemyProjectileRaycaster.intersectObjects(wallOccluderList, false)
     : [];
   const closestWallDistance = wallHits[0]?.distance ?? Infinity;
   const enemyHit = getClosestProjectileEnemyHit(closestWallDistance);
 
   if (enemyHit) {
     getShotImpactNormal(enemyHit, shotImpactNormal);
-    const damage = isProjectileHeadshot(enemyHit.enemy, enemyHit.point, enemyHit.object)
+    const damage = enemyHit.headshot
       ? projectileHeadDamage
       : projectileBodyDamage;
     createImpactEffect(enemyHit.point, shotImpactNormal, { hitEnemy: true });
@@ -2230,31 +2329,30 @@ function firePlayerProjectile() {
 }
 
 function getClosestProjectileEnemyHit(maxDistance) {
-  let closestHit = null;
   let closestDistance = maxDistance;
+  projectileEnemyHit.enemy = null;
+  projectileEnemyHit.distance = Infinity;
+  projectileEnemyHit.headshot = false;
 
   for (const enemy of activeEnemies) {
     if (!isEnemyTargetable(enemy)) {
       continue;
     }
 
-    const hits = enemyProjectileRaycaster.intersectObject(enemy.model, true);
-    const [hit] = hits;
-    if (hit && hit.distance < closestDistance) {
-      closestDistance = hit.distance;
-      closestHit = {
-        enemy,
-        object: hit.object,
-        point: hit.point,
-        distance: hit.distance,
-      };
+    if (intersectProjectileEnemyHitboxes(enemy, closestDistance)) {
+      closestDistance = projectileEnemyHit.distance;
     }
   }
 
-  return closestHit;
+  return projectileEnemyHit.enemy ? projectileEnemyHit : null;
 }
 
 function getShotImpactNormal(hit, target) {
+  if (hit.normal) {
+    target.copy(hit.normal).normalize();
+    return target;
+  }
+
   if (hit.face?.normal && hit.object?.matrixWorld) {
     target.copy(hit.face.normal).transformDirection(hit.object.matrixWorld).normalize();
     return target;
@@ -2263,24 +2361,217 @@ function getShotImpactNormal(hit, target) {
   return target.copy(projectileDirection).multiplyScalar(-1).normalize();
 }
 
-function createImpactEffect(point, normal, { hitEnemy = false } = {}) {
-  const material = impactMaterial.clone();
-  const mesh = new THREE.Mesh(impactGeometry, material);
-  const light = new THREE.PointLight(hitEnemy ? 0xffd0a8 : 0xfff1c1, impactLightIntensity, 3.2, 2);
-  const scale = hitEnemy ? 1.35 : 1;
+function intersectProjectileEnemyHitboxes(enemy, maxDistance) {
+  if (!enemy.hitbox) {
+    return false;
+  }
 
-  mesh.name = hitEnemy ? "EnemyImpact" : "WorldImpact";
-  mesh.position.copy(point).addScaledVector(normal, 0.04);
-  mesh.scale.setScalar(scale);
-  light.position.copy(mesh.position).addScaledVector(normal, 0.04);
-  scene.add(mesh, light);
-  activeImpactEffects.push({
+  updateEnemyProjectileBoxes(enemy);
+
+  let hitDistance = Infinity;
+  let hitHead = false;
+
+  const headPoint = enemyProjectileRaycaster.ray.intersectBox(projectileHeadBox, projectileHitPoint);
+  if (headPoint) {
+    hitDistance = camera.position.distanceTo(headPoint);
+    hitHead = true;
+    projectileEnemyHit.point.copy(headPoint);
+    getBoxHitNormal(projectileHeadBox, headPoint, projectileEnemyHit.normal);
+  }
+
+  const bodyPoint = enemyProjectileRaycaster.ray.intersectBox(projectileBodyBox, shotImpactPoint);
+  if (bodyPoint) {
+    const bodyDistance = camera.position.distanceTo(bodyPoint);
+    if (bodyDistance < hitDistance) {
+      hitDistance = bodyDistance;
+      hitHead = false;
+      projectileEnemyHit.point.copy(bodyPoint);
+      getBoxHitNormal(projectileBodyBox, bodyPoint, projectileEnemyHit.normal);
+    }
+  }
+
+  if (hitDistance >= maxDistance || hitDistance > projectileMaxDistance) {
+    return false;
+  }
+
+  projectileEnemyHit.enemy = enemy;
+  projectileEnemyHit.distance = hitDistance;
+  projectileEnemyHit.headshot = hitHead;
+  return true;
+}
+
+function updateEnemyProjectileBoxes(enemy) {
+  const { hitbox } = enemy;
+  const position = enemy.model.position;
+  const bodyRadius = hitbox.bodyRadius;
+  const headRadius = hitbox.headRadius;
+
+  projectileBodyBox.min.set(
+    position.x - bodyRadius,
+    position.y + hitbox.minY,
+    position.z - bodyRadius,
+  );
+  projectileBodyBox.max.set(
+    position.x + bodyRadius,
+    position.y + hitbox.headMinY,
+    position.z + bodyRadius,
+  );
+  projectileHeadBox.min.set(
+    position.x - headRadius,
+    position.y + hitbox.headMinY,
+    position.z - headRadius,
+  );
+  projectileHeadBox.max.set(
+    position.x + headRadius,
+    position.y + hitbox.maxY,
+    position.z + headRadius,
+  );
+}
+
+function getBoxHitNormal(box, point, target) {
+  let nearestDistance = Math.abs(point.x - box.min.x);
+  target.set(-1, 0, 0);
+
+  const maxXDistance = Math.abs(point.x - box.max.x);
+  if (maxXDistance < nearestDistance) {
+    nearestDistance = maxXDistance;
+    target.set(1, 0, 0);
+  }
+
+  const minYDistance = Math.abs(point.y - box.min.y);
+  if (minYDistance < nearestDistance) {
+    nearestDistance = minYDistance;
+    target.set(0, -1, 0);
+  }
+
+  const maxYDistance = Math.abs(point.y - box.max.y);
+  if (maxYDistance < nearestDistance) {
+    nearestDistance = maxYDistance;
+    target.set(0, 1, 0);
+  }
+
+  const minZDistance = Math.abs(point.z - box.min.z);
+  if (minZDistance < nearestDistance) {
+    nearestDistance = minZDistance;
+    target.set(0, 0, -1);
+  }
+
+  const maxZDistance = Math.abs(point.z - box.max.z);
+  if (maxZDistance < nearestDistance) {
+    target.set(0, 0, 1);
+  }
+
+  return target;
+}
+
+function prewarmProjectileEffectPools() {
+  for (let index = impactEffectPool.length; index < performanceProfile.prewarmImpactEffects; index += 1) {
+    impactEffectPool.push(createImpactEffectEntry());
+  }
+
+  for (let index = muzzleFlashPool.length; index < performanceProfile.prewarmMuzzleFlashes; index += 1) {
+    muzzleFlashPool.push(createMuzzleFlashEntry());
+  }
+}
+
+function acquireImpactEffect() {
+  return impactEffectPool.pop() || createImpactEffectEntry();
+}
+
+function releaseImpactEffect(effect) {
+  effect.mesh.visible = false;
+  effect.mesh.material.opacity = 0;
+  if (effect.light) {
+    effect.light.visible = false;
+    effect.light.intensity = 0;
+  }
+  effect.age = 0;
+  impactEffectPool.push(effect);
+}
+
+function createImpactEffectEntry() {
+  const mesh = new THREE.Mesh(impactGeometry, impactMaterial.clone());
+  const light = performanceProfile.effectLightsEnabled
+    ? new THREE.PointLight(0xfff1c1, 0, 3.2, 2)
+    : null;
+  mesh.visible = false;
+  mesh.frustumCulled = true;
+  scene.add(mesh);
+
+  if (light) {
+    light.visible = false;
+    scene.add(light);
+  }
+
+  return {
     mesh,
     light,
     age: 0,
     duration: impactEffectDuration,
-    baseScale: scale,
-  });
+    baseScale: 1,
+  };
+}
+
+function acquireMuzzleFlash() {
+  return muzzleFlashPool.pop() || createMuzzleFlashEntry();
+}
+
+function releaseMuzzleFlash(flash) {
+  flash.mesh.visible = false;
+  flash.mesh.material.opacity = 0;
+  if (flash.light) {
+    flash.light.visible = false;
+    flash.light.intensity = 0;
+  }
+  flash.age = 0;
+  muzzleFlashPool.push(flash);
+}
+
+function createMuzzleFlashEntry() {
+  const mesh = new THREE.Mesh(muzzleFlashGeometry, muzzleFlashMaterial.clone());
+  const light = performanceProfile.effectLightsEnabled
+    ? new THREE.PointLight(0xffe0a8, 0, 4.8, 2)
+    : null;
+  mesh.visible = false;
+  mesh.frustumCulled = true;
+  scene.add(mesh);
+
+  if (light) {
+    light.visible = false;
+    scene.add(light);
+  }
+
+  return {
+    mesh,
+    light,
+    age: 0,
+    duration: muzzleFlashDuration,
+    baseScale: 1.25,
+  };
+}
+
+function createImpactEffect(point, normal, { hitEnemy = false } = {}) {
+  const effect = acquireImpactEffect();
+  const { mesh, light } = effect;
+  const scale = hitEnemy ? 1.35 : 1;
+  const color = hitEnemy ? 0xffd0a8 : 0xfff1c1;
+
+  mesh.name = hitEnemy ? "EnemyImpact" : "WorldImpact";
+  mesh.position.copy(point).addScaledVector(normal, 0.04);
+  mesh.scale.setScalar(scale);
+  mesh.material.color.setHex(color);
+  mesh.material.opacity = 0.92;
+  mesh.visible = true;
+  if (light) {
+    light.color.setHex(color);
+    light.position.copy(mesh.position).addScaledVector(normal, 0.04);
+    light.intensity = impactLightIntensity;
+    light.visible = true;
+  }
+  effect.age = 0;
+  effect.duration = impactEffectDuration;
+  effect.baseScale = scale;
+  activeImpactEffects.push(effect);
 }
 
 function createMuzzleFlash(direction) {
@@ -2290,41 +2581,36 @@ function createMuzzleFlash(direction) {
 
   getMuzzleFlashPosition(direction, muzzleFlashPosition);
 
-  const material = muzzleFlashMaterial.clone();
-  const mesh = new THREE.Mesh(muzzleFlashGeometry, material);
-  const light = new THREE.PointLight(0xffe0a8, muzzleFlashLightIntensity, 4.8, 2);
+  const flash = acquireMuzzleFlash();
+  const { mesh, light } = flash;
 
   mesh.name = "WeaponMuzzleFlash";
   mesh.position.copy(muzzleFlashPosition);
   mesh.scale.setScalar(1.25);
-  light.position.copy(muzzleFlashPosition);
-  scene.add(mesh, light);
-  activeMuzzleFlashes.push({
-    mesh,
-    light,
-    age: 0,
-    duration: muzzleFlashDuration,
-    baseScale: 1.25,
-  });
+  mesh.material.opacity = 0.96;
+  mesh.visible = true;
+  if (light) {
+    light.position.copy(muzzleFlashPosition);
+    light.intensity = muzzleFlashLightIntensity;
+    light.visible = true;
+  }
+  flash.age = 0;
+  flash.duration = muzzleFlashDuration;
+  flash.baseScale = 1.25;
+  activeMuzzleFlashes.push(flash);
 }
 
 function getMuzzleFlashPosition(direction, target) {
-  if (currentHeldItem) {
-    muzzleFlashWeaponBox.setFromObject(currentHeldItem);
-    if (!muzzleFlashWeaponBox.isEmpty()) {
-      muzzleFlashWeaponBox.getCenter(muzzleFlashWeaponCenter);
-      muzzleFlashWeaponBox.getSize(muzzleFlashWeaponSize);
-      const forwardOffset = Math.max(
-        muzzleFlashWeaponSize.x,
-        muzzleFlashWeaponSize.y,
-        muzzleFlashWeaponSize.z,
-        0.28,
-      ) * 0.48;
-      return target.copy(muzzleFlashWeaponCenter).addScaledVector(direction, forwardOffset);
-    }
+  const muzzleLocalCenter = currentHeldItem?.userData?.muzzleLocalCenter;
+  if (currentHeldItem && muzzleLocalCenter) {
+    target.copy(muzzleLocalCenter);
+    currentHeldItem.localToWorld(target);
+    return target.addScaledVector(direction, currentHeldItem.userData.muzzleForwardOffset ?? 0.42);
+  }
 
+  if (currentHeldItem) {
     currentHeldItem.getWorldPosition(target);
-    return target.addScaledVector(direction, 0.42);
+    return target.addScaledVector(direction, currentHeldItem.userData.muzzleForwardOffset ?? 0.42);
   }
 
   if (heldSlot) {
@@ -2349,13 +2635,13 @@ function updateImpactEffects(delta) {
 
     effect.mesh.scale.setScalar(effect.baseScale * (1 + progress * 2.8));
     effect.mesh.material.opacity = 0.92 * fade;
-    effect.light.intensity = impactLightIntensity * fade;
+    if (effect.light) {
+      effect.light.intensity = impactLightIntensity * fade;
+    }
 
     if (progress >= 1) {
-      effect.mesh.removeFromParent();
-      effect.light.removeFromParent();
-      effect.mesh.material.dispose();
       activeImpactEffects.splice(index, 1);
+      releaseImpactEffect(effect);
     }
   }
 
@@ -2375,49 +2661,26 @@ function updateMuzzleFlashes(delta) {
 
     flash.mesh.scale.setScalar(flash.baseScale * (1 + progress * 2.2));
     flash.mesh.material.opacity = 0.96 * fade;
-    flash.light.intensity = muzzleFlashLightIntensity * fade;
+    if (flash.light) {
+      flash.light.intensity = muzzleFlashLightIntensity * fade;
+    }
 
     if (progress >= 1) {
-      flash.mesh.removeFromParent();
-      flash.light.removeFromParent();
-      flash.mesh.material.dispose();
       activeMuzzleFlashes.splice(index, 1);
+      releaseMuzzleFlash(flash);
     }
   }
-}
-
-function isProjectileHeadshot(enemy, hitPoint, hitObject) {
-  let object = hitObject;
-  while (object) {
-    if ((object.name || "").toLowerCase().includes("head")) {
-      return true;
-    }
-    object = object.parent;
-  }
-
-  enemyBoundsBox.setFromObject(enemy.model);
-  if (enemyBoundsBox.isEmpty()) {
-    return false;
-  }
-
-  enemyBoundsBox.getSize(enemyBoundsSize);
-  const headLine = enemyBoundsBox.min.y + enemyBoundsSize.y * 0.72;
-  return hitPoint.y >= headLine;
 }
 
 function clearImpactEffects() {
   for (const effect of activeImpactEffects) {
-    effect.mesh.removeFromParent();
-    effect.light.removeFromParent();
-    effect.mesh.material.dispose();
+    releaseImpactEffect(effect);
   }
 
   activeImpactEffects = [];
 
   for (const flash of activeMuzzleFlashes) {
-    flash.mesh.removeFromParent();
-    flash.light.removeFromParent();
-    flash.mesh.material.dispose();
+    releaseMuzzleFlash(flash);
   }
 
   activeMuzzleFlashes = [];
@@ -2527,6 +2790,31 @@ function syncMapPlayerPositionFromCharacter() {
   mapEditorState.appliedPlayerPosition = { ...nextPosition };
   mapEditorState.playerDirection = directionFromYaw(playerControlState.yawRadians);
   mapEditorState.appliedPlayerDirection = mapEditorState.playerDirection;
+  scheduleMapEditorRuntimeSync();
+}
+
+function scheduleMapEditorRuntimeSync() {
+  if (performanceProfile.mapEditorSyncInterval <= 0) {
+    renderMapEditor();
+    updateMapEditorControls();
+    return;
+  }
+
+  mapEditorSyncPending = true;
+}
+
+function updateDeferredMapEditorSync(delta) {
+  if (!mapEditorSyncPending) {
+    return;
+  }
+
+  mapEditorSyncTimer += delta;
+  if (mapEditorSyncTimer < performanceProfile.mapEditorSyncInterval) {
+    return;
+  }
+
+  mapEditorSyncTimer = 0;
+  mapEditorSyncPending = false;
   renderMapEditor();
   updateMapEditorControls();
 }
@@ -2588,23 +2876,10 @@ function updateCameraAnchorFromCharacter() {
     return;
   }
 
-  playerAnchorBox.setFromObject(characterModel);
-
-  if (playerAnchorBox.isEmpty()) {
-    cameraControlState.anchorTarget.set(
-      characterModel.position.x,
-      2.34,
-      characterModel.position.z,
-    );
-    return;
-  }
-
-  playerAnchorBox.getSize(playerAnchorSize);
-  playerAnchorBox.getCenter(playerAnchorCenter);
   cameraControlState.anchorTarget.set(
-    playerAnchorCenter.x,
-    Math.max(1.45, Math.min(playerAnchorSize.y * 0.45, 2.7)),
-    playerAnchorCenter.z,
+    characterModel.position.x,
+    2.34,
+    characterModel.position.z,
   );
 }
 
@@ -2640,20 +2915,33 @@ function getPlayerCameraTargetOpacity() {
   }
 
   const cameraDistance = camera.position.distanceTo(cameraControlState.anchorTarget);
-  return THREE.MathUtils.smoothstep(
+  const distanceOpacity = THREE.MathUtils.smoothstep(
     cameraDistance,
     playerCameraFadeEndDistance,
     playerCameraFadeStartDistance,
   );
+  const collisionRatio = Number.isFinite(cameraControlState.collisionRatio)
+    ? cameraControlState.collisionRatio
+    : 1;
+  const collisionOpacity = THREE.MathUtils.smoothstep(
+    collisionRatio,
+    playerCameraFadeEndCollisionRatio,
+    playerCameraFadeStartCollisionRatio,
+  );
+
+  return Math.min(distanceOpacity, collisionOpacity);
 }
 
 function applyPlayerCameraOpacity(opacity) {
   const clampedOpacity = THREE.MathUtils.clamp(opacity, 0, 1);
+  const isHidden = clampedOpacity <= playerCameraHiddenOpacity;
 
   characterModel.traverse((node) => {
     if (!node.isMesh || !node.material) {
       return;
     }
+
+    node.visible = !isHidden;
 
     const materials = Array.isArray(node.material) ? node.material : [node.material];
     for (const material of materials) {
@@ -4076,6 +4364,12 @@ function createEnemyRuntime(model, mapEnemy, index) {
     attackHitApplied: false,
     hitReactTimer: 0,
     hitReactPhase: Math.random() * Math.PI * 2,
+    hitbox: createEnemyHitboxMetrics(model),
+    distanceToPlayer: Infinity,
+    mixerUpdateAccumulator: 0,
+    mixerUpdateTimer: Math.random() * performanceProfile.enemyFarMixerInterval,
+    lineOfSightTimer: Math.random() * performanceProfile.enemyLosInterval,
+    lineOfSightResult: false,
     active: true,
   };
 
@@ -4083,6 +4377,35 @@ function createEnemyRuntime(model, mapEnemy, index) {
   startEnemySpawnAnimation(enemy);
   enemy.mixer.update(0.001);
   return enemy;
+}
+
+function createEnemyHitboxMetrics(model) {
+  enemyBoundsBox.setFromObject(model);
+  if (enemyBoundsBox.isEmpty()) {
+    return {
+      minY: 0,
+      maxY: 4.4,
+      headMinY: 3.05,
+      eyeOffsetY: 3,
+      bodyRadius: enemyCollisionRadius,
+      headRadius: enemyCollisionRadius * 0.48,
+    };
+  }
+
+  enemyBoundsBox.getSize(enemyBoundsSize);
+  const minY = enemyBoundsBox.min.y - model.position.y;
+  const maxY = enemyBoundsBox.max.y - model.position.y;
+  const height = Math.max(maxY - minY, 0.1);
+  const radius = Math.max(enemyBoundsSize.x, enemyBoundsSize.z, enemyCollisionRadius * 1.35) * 0.5;
+
+  return {
+    minY,
+    maxY,
+    headMinY: minY + height * 0.72,
+    eyeOffsetY: minY + height * 0.68,
+    bodyRadius: radius,
+    headRadius: Math.max(radius * 0.52, enemyCollisionRadius * 0.34),
+  };
 }
 
 function pickEnemySpawnKind() {
@@ -4153,7 +4476,8 @@ function updateEnemies(delta) {
   }
 
   for (const enemy of activeEnemies) {
-    enemy.mixer?.update(delta);
+    refreshEnemyDistanceToPlayer(enemy);
+    updateEnemyMixer(enemy, delta);
 
     if (enemy.state === "dead") {
       updateEnemyHitFeedback(enemy, delta);
@@ -4163,6 +4487,37 @@ function updateEnemies(delta) {
     updateEnemyState(enemy, delta);
     updateEnemyHitFeedback(enemy, delta);
   }
+}
+
+function updateEnemyMixer(enemy, delta) {
+  if (!enemy.mixer) {
+    return;
+  }
+
+  const needsFullRate = enemy.distanceToPlayer <= performanceProfile.enemyNearUpdateDistance
+    || enemy.state === "attacking"
+    || isEnemyTimedState(enemy.state)
+    || enemy.hitReactTimer > 0;
+
+  if (needsFullRate) {
+    if (enemy.mixerUpdateAccumulator > 0) {
+      delta += enemy.mixerUpdateAccumulator;
+      enemy.mixerUpdateAccumulator = 0;
+    }
+    enemy.mixer.update(delta);
+    enemy.mixerUpdateTimer = performanceProfile.enemyFarMixerInterval;
+    return;
+  }
+
+  enemy.mixerUpdateAccumulator += delta;
+  enemy.mixerUpdateTimer -= delta;
+  if (enemy.mixerUpdateTimer > 0) {
+    return;
+  }
+
+  enemy.mixer.update(enemy.mixerUpdateAccumulator);
+  enemy.mixerUpdateAccumulator = 0;
+  enemy.mixerUpdateTimer = performanceProfile.enemyFarMixerInterval;
 }
 
 function updateEnemyState(enemy, delta) {
@@ -4183,7 +4538,7 @@ function updateEnemyState(enemy, delta) {
     return;
   }
 
-  const canSeePlayer = canEnemySeePlayer(enemy);
+  const canSeePlayer = canEnemySeePlayer(enemy, delta);
   if (!canSeePlayer) {
     setEnemyLoopState(enemy, "idle", "Skeletons_Idle");
     return;
@@ -4431,11 +4786,22 @@ function isEnemyTargetable(enemy) {
   return Boolean(enemy?.active && enemy.state !== "dead" && enemy.state !== "dying");
 }
 
-function canEnemySeePlayer(enemy) {
+function canEnemySeePlayer(enemy, delta = 0, { force = false } = {}) {
   const distanceToPlayer = getEnemyDistanceToPlayer(enemy);
   if (distanceToPlayer > enemyVisionDistance) {
+    enemy.lineOfSightResult = false;
+    enemy.lineOfSightTimer = Math.min(enemy.lineOfSightTimer, performanceProfile.enemyFarLosInterval);
     return false;
   }
+
+  const losInterval = distanceToPlayer > enemyVisionDistance * 0.52
+    ? performanceProfile.enemyFarLosInterval
+    : performanceProfile.enemyLosInterval;
+  enemy.lineOfSightTimer -= delta;
+  if (!force && enemy.lineOfSightTimer > 0) {
+    return enemy.lineOfSightResult;
+  }
+  enemy.lineOfSightTimer = losInterval + Math.random() * losInterval * 0.35;
 
   getEnemyEyePosition(enemy, enemyEyePosition);
   getPlayerTargetPosition(enemyPlayerTarget);
@@ -4450,13 +4816,23 @@ function canEnemySeePlayer(enemy) {
   enemyLineOfSightRaycaster.near = 0.05;
   enemyLineOfSightRaycaster.far = Math.max(0, distance - 0.25);
 
-  const hits = wallOccluders.size
-    ? enemyLineOfSightRaycaster.intersectObjects([...wallOccluders], false)
+  const hits = wallOccluderList.length
+    ? enemyLineOfSightRaycaster.intersectObjects(wallOccluderList, false)
     : [];
-  return hits.length === 0;
+  enemy.lineOfSightResult = hits.length === 0;
+  return enemy.lineOfSightResult;
 }
 
 function getEnemyEyePosition(enemy, target) {
+  if (enemy.hitbox) {
+    target.set(
+      enemy.model.position.x,
+      enemy.model.position.y + enemy.hitbox.eyeOffsetY,
+      enemy.model.position.z,
+    );
+    return target;
+  }
+
   enemyBoundsBox.setFromObject(enemy.model);
   if (enemyBoundsBox.isEmpty()) {
     target.copy(enemy.model.position);
@@ -4476,20 +4852,25 @@ function getPlayerTargetPosition(target) {
     return target;
   }
 
-  playerAnchorBox.setFromObject(characterModel);
-  if (playerAnchorBox.isEmpty()) {
-    target.copy(characterModel.position);
-    target.y += 2.2;
-    return target;
-  }
-
-  playerAnchorBox.getSize(playerAnchorSize);
-  playerAnchorBox.getCenter(target);
-  target.y = playerAnchorBox.min.y + playerAnchorSize.y * 0.55;
+  target.copy(characterModel.position);
+  target.y += 2.2;
   return target;
 }
 
 function getEnemyDistanceToPlayer(enemy) {
+  if (Number.isFinite(enemy?.distanceToPlayer)) {
+    return enemy.distanceToPlayer;
+  }
+
+  return computeEnemyDistanceToPlayer(enemy);
+}
+
+function refreshEnemyDistanceToPlayer(enemy) {
+  enemy.distanceToPlayer = computeEnemyDistanceToPlayer(enemy);
+  return enemy.distanceToPlayer;
+}
+
+function computeEnemyDistanceToPlayer(enemy) {
   if (!characterModel) {
     return Infinity;
   }
@@ -4574,7 +4955,7 @@ function canEnemyOccupyWorldPosition(x, z) {
 }
 
 function isPlayerInEnemyAttackReach(enemy) {
-  return getEnemyDistanceToPlayer(enemy) <= enemyAttackRange && canEnemySeePlayer(enemy);
+  return getEnemyDistanceToPlayer(enemy) <= enemyAttackRange && canEnemySeePlayer(enemy, 0, { force: true });
 }
 
 function disposeObject3D(object) {
@@ -4763,10 +5144,12 @@ function removeCollisionDebugBox(debugBox) {
 
 function collectWallOccluders(object) {
   wallOccluders.clear();
+  wallOccluderList = [];
 
   object.traverse((node) => {
     if (node.userData?.occludesCharacter) {
       wallOccluders.add(node);
+      wallOccluderList.push(node);
     }
   });
 }
@@ -4778,16 +5161,17 @@ function clearWallOcclusionState() {
 
   transparentWallOccluders.clear();
   wallOccluders.clear();
+  wallOccluderList = [];
 }
 
 function updateWallOcclusion() {
-  if (!characterModel || wallOccluders.size === 0) {
+  if (!characterModel || wallOccluderList.length === 0) {
     clearTransientWallOcclusion();
     return;
   }
 
   getCharacterOcclusionTarget(wallOcclusionTarget);
-  const rayDirection = wallOcclusionTarget.clone().sub(camera.position);
+  const rayDirection = wallOcclusionDirection.copy(wallOcclusionTarget).sub(camera.position);
   const rayDistance = rayDirection.length();
 
   if (rayDistance <= 0.001) {
@@ -4800,22 +5184,24 @@ function updateWallOcclusion() {
   wallOcclusionRaycaster.near = 0;
   wallOcclusionRaycaster.far = rayDistance;
 
-  const occludedWalls = new Set(
-    wallOcclusionRaycaster.intersectObjects([...wallOccluders], false).map((hit) => hit.object),
-  );
+  wallOcclusionHitSet.clear();
+  const hits = wallOcclusionRaycaster.intersectObjects(wallOccluderList, false);
+  for (const hit of hits) {
+    wallOcclusionHitSet.add(hit.object);
+  }
 
   for (const wall of transparentWallOccluders) {
-    if (!occludedWalls.has(wall)) {
+    if (!wallOcclusionHitSet.has(wall)) {
       setWallOcclusionVisible(wall, false);
     }
   }
 
-  for (const wall of occludedWalls) {
+  for (const wall of wallOcclusionHitSet) {
     setWallOcclusionVisible(wall, true);
   }
 
   transparentWallOccluders.clear();
-  for (const wall of occludedWalls) {
+  for (const wall of wallOcclusionHitSet) {
     transparentWallOccluders.add(wall);
   }
 }
@@ -4829,14 +5215,8 @@ function clearTransientWallOcclusion() {
 }
 
 function getCharacterOcclusionTarget(target) {
-  const characterBox = new THREE.Box3().setFromObject(characterModel);
-  if (characterBox.isEmpty()) {
-    target.copy(cameraControlState.anchorTarget);
-    return target;
-  }
-
-  characterBox.getCenter(target);
-  target.y = characterBox.min.y + characterBox.getSize(new THREE.Vector3()).y * 0.62;
+  target.copy(characterModel?.position || cameraControlState.anchorTarget);
+  target.y += 2.35;
   return target;
 }
 
@@ -5669,26 +6049,16 @@ function createPlatform(mapSnapshot) {
     ceiling: normalizeMapMaterialId("ceiling", mapSnapshot.materials?.ceiling),
   };
   const tileSize = mapSnapshot.showTileEdges ? platformTileSize - platformTileGap : platformTileSize;
-  const tileGeometry = new THREE.BoxGeometry(
-    tileSize,
-    platformThickness,
-    tileSize,
-  );
-
-  for (const key of mapSnapshot.activeTiles) {
-    const tile = parseTileKey(key);
-    const worldCenter = mapTileCenterToWorld(tile);
-    const tileMaterial = createSewerSurfaceMaterial("floor", materialSelection.floor);
-    const tileMesh = new THREE.Mesh(tileGeometry, tileMaterial);
-    tileMesh.position.set(worldCenter.x, -platformThickness / 2, worldCenter.z);
-    configureShadowMesh(tileMesh, { cast: false, receive: true });
-    platform.add(tileMesh);
-  }
+  const floor = createPlatformFloor(mapSnapshot.activeTiles, materialSelection.floor, tileSize);
 
   const seams = mapSnapshot.showTileEdges ? createPlatformSeamLines(mapSnapshot.activeTiles) : null;
   const walls = mapSnapshot.isCovered ? createPlatformWalls(mapSnapshot.activeTiles, materialSelection.wall) : null;
   const ceiling = mapSnapshot.isCovered ? createPlatformCeiling(mapSnapshot.activeTiles, materialSelection.ceiling) : null;
   const lights = mapSnapshot.isCovered ? createSewerStageLights(mapSnapshot) : null;
+
+  if (floor) {
+    platform.add(floor);
+  }
 
   if (seams) {
     platform.add(seams);
@@ -5707,6 +6077,47 @@ function createPlatform(mapSnapshot) {
   }
 
   return platform;
+}
+
+function createPlatformFloor(activeTiles, materialId, tileSize) {
+  const baseGeometry = new THREE.BoxGeometry(tileSize, platformThickness, tileSize);
+  const geometry = createMergedTranslatedGeometry(baseGeometry, activeTiles, (tile, matrix) => {
+    const worldCenter = mapTileCenterToWorld(tile);
+    matrix.makeTranslation(worldCenter.x, -platformThickness / 2, worldCenter.z);
+  });
+  baseGeometry.dispose();
+
+  if (!geometry) {
+    return null;
+  }
+
+  const floor = new THREE.Mesh(geometry, createSewerSurfaceMaterial("floor", materialId));
+  floor.name = "SewerFloorMerged";
+  return configureShadowMesh(floor, { cast: false, receive: true });
+}
+
+function createMergedTranslatedGeometry(baseGeometry, activeTiles, applyTransform) {
+  const geometries = [];
+  const matrix = new THREE.Matrix4();
+
+  for (const key of activeTiles) {
+    const tile = parseTileKey(key);
+    const geometry = baseGeometry.clone();
+    applyTransform(tile, matrix);
+    geometry.applyMatrix4(matrix);
+    geometries.push(geometry);
+  }
+
+  if (geometries.length === 0) {
+    return null;
+  }
+
+  const mergedGeometry = mergeGeometries(geometries, false);
+  for (const geometry of geometries) {
+    geometry.dispose();
+  }
+
+  return mergedGeometry;
 }
 
 function createSewerSurfacePlan(activeTiles) {
@@ -5844,8 +6255,8 @@ function createSewerSurfaceMaterial(surface, materialId) {
 }
 
 function configureShadowMesh(mesh, { cast = true, receive = true } = {}) {
-  mesh.castShadow = cast;
-  mesh.receiveShadow = receive;
+  mesh.castShadow = Boolean(cast && performanceProfile.shadowsEnabled);
+  mesh.receiveShadow = Boolean(receive && performanceProfile.shadowsEnabled);
   return mesh;
 }
 
@@ -5867,15 +6278,31 @@ function configureSewerLightShadow(light, {
 }
 
 function getSewerShadowLightLimit() {
+  if (!performanceProfile.shadowsEnabled || !renderer.shadowMap.enabled) {
+    return 0;
+  }
+
   const maxTextureUnits = renderer.capabilities?.maxTextures ?? 16;
   const availableShadowUnits = maxTextureUnits - sewerReservedFragmentTextureUnits;
-  return Math.max(0, Math.min(sewerMaxShadowCastingSpotLights, availableShadowUnits));
+  return Math.max(0, Math.min(performanceProfile.maxShadowSpotLights, availableShadowUnits));
 }
 
 function createSewerShadowLightIndexSet(lightTiles, focalPoint = null) {
   const shadowLightLimit = getSewerShadowLightLimit();
-  if (shadowLightLimit <= 0 || lightTiles.length === 0) {
+  return selectLightIndexesByDistance(lightTiles, focalPoint, shadowLightLimit);
+}
+
+function createSewerRuntimeLightIndexSet(lightTiles, focalPoint = null) {
+  return selectLightIndexesByDistance(lightTiles, focalPoint, performanceProfile.maxStageDynamicLights);
+}
+
+function selectLightIndexesByDistance(lightTiles, focalPoint, limit) {
+  if (limit <= 0 || lightTiles.length === 0) {
     return new Set();
+  }
+
+  if (!Number.isFinite(limit) || limit >= lightTiles.length) {
+    return new Set(lightTiles.map((_, index) => index));
   }
 
   const focalX = Number.isFinite(focalPoint?.x) ? focalPoint.x : mapCenter;
@@ -5887,7 +6314,7 @@ function createSewerShadowLightIndexSet(lightTiles, focalPoint = null) {
         distance: (tile.x + 0.5 - focalX) ** 2 + (tile.z + 0.5 - focalZ) ** 2,
       }))
       .sort((a, b) => a.distance - b.distance || a.index - b.index)
-      .slice(0, shadowLightLimit)
+      .slice(0, limit)
       .map(({ index }) => index),
   );
 }
@@ -5945,92 +6372,119 @@ function createPlatformSeamLines(activeTiles) {
 }
 
 function createPlatformCeiling(activeTiles, materialId) {
-  const ceiling = new THREE.Group();
-  ceiling.name = "SewerCeiling";
   const ceilingGeometry = new THREE.BoxGeometry(
     platformTileSize,
     platformCeilingThickness,
     platformTileSize,
   );
-
-  for (const key of activeTiles) {
-    const tile = parseTileKey(key);
+  const geometry = createMergedTranslatedGeometry(ceilingGeometry, activeTiles, (tile, matrix) => {
     const center = mapTileCenterToWorld(tile);
-    const ceilingMaterial = createSewerSurfaceMaterial("ceiling", materialId);
-    const ceilingTile = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
-    ceilingTile.position.set(center.x, platformWallHeight + platformCeilingThickness / 2, center.z);
-    configureShadowMesh(ceilingTile);
-    ceiling.add(ceilingTile);
+    matrix.makeTranslation(center.x, platformWallHeight + platformCeilingThickness / 2, center.z);
+  });
+  ceilingGeometry.dispose();
+
+  if (!geometry) {
+    return null;
   }
 
-  return ceiling;
+  const ceiling = new THREE.Mesh(geometry, createSewerSurfaceMaterial("ceiling", materialId));
+  ceiling.name = "SewerCeilingMerged";
+  return configureShadowMesh(ceiling);
 }
 
 function createPlatformWalls(activeTiles, materialId) {
   const walls = new THREE.Group();
   walls.name = "PerimeterWalls";
-  const horizontalWallGeometry = new THREE.BoxGeometry(
-    platformTileSize,
-    platformWallHeight,
-    platformWallThickness,
-  );
-  const verticalWallGeometry = new THREE.BoxGeometry(
-    platformWallThickness,
-    platformWallHeight,
-    platformTileSize,
-  );
 
-  for (const key of activeTiles) {
-    const tile = parseTileKey(key);
-    const center = mapTileCenterToWorld(tile);
-    const minX = center.x - platformTileSize / 2;
-    const maxX = center.x + platformTileSize / 2;
-    const minZ = center.z - platformTileSize / 2;
-    const maxZ = center.z + platformTileSize / 2;
-    const y = platformWallHeight / 2;
-
-    if (!activeTiles.has(tileKey(tile.x, tile.z - 1))) {
-      const wall = createPlatformWallMesh(horizontalWallGeometry, materialId);
-      wall.userData.occludesCharacter = true;
-      wall.position.set(center.x, y, minZ);
-      walls.add(wall);
-    }
-
-    if (!activeTiles.has(tileKey(tile.x + 1, tile.z))) {
-      const wall = createPlatformWallMesh(verticalWallGeometry, materialId);
-      wall.userData.occludesCharacter = true;
-      wall.position.set(maxX, y, center.z);
-      walls.add(wall);
-    }
-
-    if (!activeTiles.has(tileKey(tile.x, tile.z + 1))) {
-      const wall = createPlatformWallMesh(horizontalWallGeometry, materialId);
-      wall.userData.occludesCharacter = true;
-      wall.position.set(center.x, y, maxZ);
-      walls.add(wall);
-    }
-
-    if (!activeTiles.has(tileKey(tile.x - 1, tile.z))) {
-      const wall = createPlatformWallMesh(verticalWallGeometry, materialId);
-      wall.userData.occludesCharacter = true;
-      wall.position.set(minX, y, center.z);
-      walls.add(wall);
-    }
+  for (const run of createBoundaryWallRuns(activeTiles)) {
+    const wall = createPlatformWallRunMesh(run, materialId);
+    wall.userData.occludesCharacter = true;
+    walls.add(wall);
   }
 
   if (walls.children.length === 0) {
-    horizontalWallGeometry.dispose();
-    verticalWallGeometry.dispose();
     return null;
   }
 
   return walls;
 }
 
-function createPlatformWallMesh(geometry, materialId) {
-  return configureShadowMesh(
-    new THREE.Mesh(geometry, createSewerSurfaceMaterial("wall", materialId)),
-  );
+function createBoundaryWallRuns(activeTiles) {
+  const runs = [];
+  const visited = new Set();
+
+  for (const key of activeTiles) {
+    const tile = parseTileKey(key);
+    for (const side of ["north", "east", "south", "west"]) {
+      if (!hasBoundaryWall(activeTiles, tile, side)) {
+        continue;
+      }
+
+      const seed = getWallRunSeed(activeTiles, tile, side);
+      if (visited.has(seed)) {
+        continue;
+      }
+
+      visited.add(seed);
+      runs.push(createBoundaryWallRun(activeTiles, tile, side));
+    }
+  }
+
+  return runs;
+}
+
+function createBoundaryWallRun(activeTiles, tile, side) {
+  if (side === "north" || side === "south") {
+    let startX = tile.x;
+    let endX = tile.x;
+
+    while (hasBoundaryWall(activeTiles, { x: startX - 1, z: tile.z }, side)) {
+      startX -= 1;
+    }
+
+    while (hasBoundaryWall(activeTiles, { x: endX + 1, z: tile.z }, side)) {
+      endX += 1;
+    }
+
+    const boundaryZ = side === "north" ? tile.z : tile.z + 1;
+    const length = endX - startX + 1;
+    return {
+      orientation: "x",
+      width: length * platformTileSize,
+      depth: platformWallThickness,
+      x: (startX + length / 2 - mapCenter) * platformTileSize,
+      z: (boundaryZ - mapCenter) * platformTileSize,
+    };
+  }
+
+  let startZ = tile.z;
+  let endZ = tile.z;
+
+  while (hasBoundaryWall(activeTiles, { x: tile.x, z: startZ - 1 }, side)) {
+    startZ -= 1;
+  }
+
+  while (hasBoundaryWall(activeTiles, { x: tile.x, z: endZ + 1 }, side)) {
+    endZ += 1;
+  }
+
+  const boundaryX = side === "west" ? tile.x : tile.x + 1;
+  const length = endZ - startZ + 1;
+  return {
+    orientation: "z",
+    width: platformWallThickness,
+    depth: length * platformTileSize,
+    x: (boundaryX - mapCenter) * platformTileSize,
+    z: (startZ + length / 2 - mapCenter) * platformTileSize,
+  };
+}
+
+function createPlatformWallRunMesh(run, materialId) {
+  const geometry = new THREE.BoxGeometry(run.width, platformWallHeight, run.depth);
+  const wall = new THREE.Mesh(geometry, createSewerSurfaceMaterial("wall", materialId));
+  wall.name = `PerimeterWallRun:${run.orientation}`;
+  wall.position.set(run.x, platformWallHeight / 2, run.z);
+  return configureShadowMesh(wall);
 }
 
 function getWallRunSeed(activeTiles, tile, side) {
@@ -6088,9 +6542,10 @@ function createSewerStageLights(mapSnapshot) {
 
   const group = new THREE.Group();
   group.name = "SewerStageLights";
+  const runtimeLightIndexes = createSewerRuntimeLightIndexSet(lightTiles, mapSnapshot.playerPosition);
   const shadowLightIndexes = createSewerShadowLightIndexSet(lightTiles, mapSnapshot.playerPosition);
-  const fixtureGeometry = new THREE.CylinderGeometry(0.2, 0.26, 0.14, 14);
-  const bulbGeometry = new THREE.SphereGeometry(0.16, 14, 10);
+  const fixtureGeometry = new THREE.CylinderGeometry(0.2, 0.26, 0.14, runtimeIsMobile ? 8 : 14);
+  const bulbGeometry = new THREE.SphereGeometry(0.16, runtimeIsMobile ? 8 : 14, runtimeIsMobile ? 6 : 10);
   const cableGeometry = new THREE.CylinderGeometry(0.025, 0.025, sewerLightCableLength, 8);
   const cableMaterial = new THREE.MeshStandardMaterial({
     color: 0x11100e,
@@ -6115,39 +6570,49 @@ function createSewerStageLights(mapSnapshot) {
       transparent: true,
       opacity: 0.92,
     });
-    const light = new THREE.PointLight(color, sewerFillLightIntensity, sewerFillLightDistance, 1.7);
-    const downLight = new THREE.SpotLight(
-      color,
-      sewerDownLightIntensity,
-      sewerDownLightDistance,
-      Math.PI / 4.05,
-      0.68,
-      1.35,
-    );
-    const downLightTarget = new THREE.Object3D();
     const cable = new THREE.Mesh(cableGeometry, cableMaterial);
     const fixture = new THREE.Mesh(fixtureGeometry, fixtureMaterial);
     const bulb = new THREE.Mesh(bulbGeometry, bulbMaterial);
 
-    light.position.set(center.x, lightHeight, center.z);
-    downLight.position.copy(light.position);
-    downLightTarget.position.set(center.x, 0.2, center.z);
-    downLight.target = downLightTarget;
     cable.position.set(center.x, platformWallHeight - sewerLightCableLength / 2, center.z);
     fixture.position.set(center.x, fixtureHeight, center.z);
-    bulb.position.copy(light.position);
-    if (shadowLightIndexes.has(index)) {
-      configureSewerLightShadow(downLight, {
-        mapSize: 1024,
-        far: sewerDownLightDistance,
-        bias: -0.00018,
-        normalBias: 0.035,
-      });
-    }
+    bulb.position.set(center.x, lightHeight, center.z);
     configureShadowMesh(cable);
     configureShadowMesh(fixture);
     configureShadowMesh(bulb, { cast: false, receive: false });
-    group.add(light, downLight, downLightTarget, cable, fixture, bulb);
+    group.add(cable, fixture, bulb);
+
+    if (!runtimeLightIndexes.has(index)) {
+      return;
+    }
+
+    const light = new THREE.PointLight(color, sewerFillLightIntensity, sewerFillLightDistance, 1.7);
+    light.position.copy(bulb.position);
+    group.add(light);
+
+    if (performanceProfile.stageSpotLightsEnabled) {
+      const downLight = new THREE.SpotLight(
+        color,
+        sewerDownLightIntensity,
+        sewerDownLightDistance,
+        Math.PI / 4.05,
+        0.68,
+        1.35,
+      );
+      const downLightTarget = new THREE.Object3D();
+      downLight.position.copy(light.position);
+      downLightTarget.position.set(center.x, 0.2, center.z);
+      downLight.target = downLightTarget;
+      if (shadowLightIndexes.has(index)) {
+        configureSewerLightShadow(downLight, {
+          mapSize: runtimeIsMobile ? 512 : 1024,
+          far: sewerDownLightDistance,
+          bias: -0.00018,
+          normalBias: 0.035,
+        });
+      }
+      group.add(downLight, downLightTarget);
+    }
   });
 
   return group;
@@ -6424,9 +6889,85 @@ function resize() {
   const height = Math.max(sceneElement.clientHeight, 1);
 
   renderer.setSize(width, height, false);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  renderer.setPixelRatio(getRuntimePixelRatio());
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
+}
+
+function createPerfOverlayState() {
+  if (!performanceProfile.perfOverlayEnabled) {
+    return { enabled: false };
+  }
+
+  const element = document.createElement("div");
+  element.setAttribute("aria-hidden", "true");
+  element.style.cssText = [
+    "position:fixed",
+    "right:10px",
+    "bottom:10px",
+    "z-index:50",
+    "min-width:168px",
+    "padding:8px 10px",
+    "border:1px solid rgba(255,255,255,0.18)",
+    "background:rgba(4,8,6,0.78)",
+    "color:#d8ffe1",
+    "font:12px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace",
+    "white-space:pre",
+    "pointer-events:none",
+    "box-shadow:0 8px 24px rgba(0,0,0,0.34)",
+  ].join(";");
+  document.body.appendChild(element);
+
+  return {
+    enabled: true,
+    element,
+    frames: 0,
+    elapsed: 0,
+    frameMsTotal: 0,
+    frameMsMax: 0,
+    lastShotMs: 0,
+  };
+}
+
+function updatePerfOverlay(delta) {
+  if (!perfOverlayState?.enabled) {
+    return;
+  }
+
+  const frameMs = delta * 1000;
+  perfOverlayState.frames += 1;
+  perfOverlayState.elapsed += delta;
+  perfOverlayState.frameMsTotal += frameMs;
+  perfOverlayState.frameMsMax = Math.max(perfOverlayState.frameMsMax, frameMs);
+
+  if (perfOverlayState.elapsed < 0.5) {
+    return;
+  }
+
+  const fps = perfOverlayState.frames / perfOverlayState.elapsed;
+  const avgMs = perfOverlayState.frameMsTotal / Math.max(1, perfOverlayState.frames);
+  const renderInfo = renderer.info.render;
+  const memoryInfo = renderer.info.memory;
+  perfOverlayState.element.textContent = [
+    `FPS ${fps.toFixed(0)}  avg ${avgMs.toFixed(1)}ms`,
+    `max ${perfOverlayState.frameMsMax.toFixed(1)}ms shot ${perfOverlayState.lastShotMs.toFixed(1)}ms`,
+    `calls ${renderInfo.calls} tris ${renderInfo.triangles}`,
+    `geo ${memoryInfo.geometries} tex ${memoryInfo.textures}`,
+    `mobile ${runtimeIsMobile ? "on" : "off"} shadows ${performanceProfile.shadowsEnabled ? "on" : "off"}`,
+  ].join("\n");
+
+  perfOverlayState.frames = 0;
+  perfOverlayState.elapsed = 0;
+  perfOverlayState.frameMsTotal = 0;
+  perfOverlayState.frameMsMax = 0;
+}
+
+function recordProjectileShotPerf(startTime) {
+  if (!perfOverlayState?.enabled || !startTime) {
+    return;
+  }
+
+  perfOverlayState.lastShotMs = performance.now() - startTime;
 }
 
 function setStatus(message, state = "loading") {

@@ -12,10 +12,21 @@ const maxJsonBodySize = 64 * 1024;
 const mapConfigPath = path.join(root, "src", "map-config.js");
 const mapDirections = new Set(["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"]);
 const defaultMapDirection = "south";
+const materialIds = new Set([
+  "concrete-base",
+  "concrete-base-02",
+  "debris-02",
+  "soil-mud",
+  "concrete-dirty-2",
+  "brick-modern-01",
+  "concrete-dirty",
+  "metal",
+  "bricks",
+]);
 const materialOptions = {
-  floor: new Set(["concrete-base", "concrete-base-02", "debris-02", "soil-mud", "concrete-dirty-2"]),
-  wall: new Set(["brick-modern-01", "concrete-dirty", "concrete-dirty-2", "metal"]),
-  ceiling: new Set(["bricks", "concrete-dirty-2"]),
+  floor: materialIds,
+  wall: materialIds,
+  ceiling: materialIds,
 };
 const defaultMapMaterials = {
   floor: "concrete-base",
