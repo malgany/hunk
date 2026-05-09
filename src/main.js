@@ -10,6 +10,9 @@ const crosshairElement = document.querySelector("[data-crosshair]");
 const phoneShellElement = document.querySelector(".phone-shell");
 const healthHudElement = document.querySelector("[data-health-hud]");
 const damageFlashElement = document.querySelector("[data-damage-flash]");
+const mobileJoystickElement = document.querySelector("[data-mobile-joystick]");
+const mobileJoystickStickElement = document.querySelector("[data-mobile-joystick-stick]");
+const mobileFireButton = document.querySelector("[data-mobile-fire-button]");
 const startScreen = document.querySelector("#startScreen");
 const startButton = document.querySelector("#startButton");
 const mapCanvas = document.querySelector("#mapCanvas");
@@ -71,6 +74,11 @@ const copyColorsButton = document.querySelector("#copyColorsButton");
 const modelUrl = new URL("../assets/HUNK.glb", import.meta.url).href;
 const minionUrl = new URL("../assets/minion.glb", import.meta.url).href;
 const runtimeHost = window.location.hostname;
+const runtimeMobileOverride = new URLSearchParams(window.location.search).has("mobile");
+const runtimeHasCoarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
+const runtimeIsTouchDevice = navigator.maxTouchPoints > 0 || runtimeHasCoarsePointer;
+const runtimeIsMobile = runtimeMobileOverride
+  || (runtimeIsTouchDevice && window.matchMedia?.("(max-width: 1024px)")?.matches);
 const runtimeIsLocal = window.location.protocol === "file:"
   || runtimeHost === "localhost"
   || runtimeHost === "127.0.0.1"
@@ -179,6 +187,11 @@ const playerMouseYawSensitivity = 0.0028;
 const playerMousePitchSensitivity = 0.0022;
 const playerAimMouseSensitivityMultiplier = 0.68;
 const playerMousePitchLimit = THREE.MathUtils.degToRad(22);
+const mobileLookYawSensitivity = 0.0052;
+const mobileLookPitchSensitivity = 0.0042;
+const mobileJoystickRadius = 58;
+const mobileJoystickDeadZone = 0.08;
+const mobileJoystickRunThreshold = 0.92;
 const playerMaxHealth = 50;
 const playerFireInterval = 0.11;
 const projectileMaxDistance = 80;
@@ -662,6 +675,7 @@ const sewerSurfaceVariants = {
 
 document.body.classList.toggle("is-runtime-local", runtimeIsLocal);
 document.body.classList.toggle("is-runtime-static", runtimeIsStaticHosted);
+document.body.classList.toggle("is-runtime-mobile", runtimeIsMobile);
 
 platformGroup = createPlatform(createAppliedMapSnapshot());
 scene.add(platformGroup);
@@ -673,6 +687,7 @@ populateWeaponSelect();
 setupMapEditor();
 setupDevPanelTabs();
 setupCameraControls();
+setupMobileControls();
 setupAttachmentControls();
 renderColorPanel();
 setupColorControls();
@@ -740,6 +755,7 @@ function startGame() {
   }
 
   sceneLoadStarted = true;
+  enterPreferredFullscreenAndOrientation();
 
   if (startButton) {
     startButton.disabled = true;
@@ -1175,6 +1191,233 @@ function setupCameraControls() {
   controls.enabled = cameraControlState.freeCamera;
 }
 
+function setupMobileControls() {
+  if (!runtimeIsMobile || !phoneShellElement) {
+    return;
+  }
+
+  phoneShellElement.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+  });
+  phoneShellElement.addEventListener("pointerdown", handleMobilePointerDown);
+  phoneShellElement.addEventListener("pointermove", handleMobilePointerMove);
+  phoneShellElement.addEventListener("pointerup", handleMobilePointerUp);
+  phoneShellElement.addEventListener("pointercancel", handleMobilePointerUp);
+
+  if (mobileFireButton) {
+    mobileFireButton.addEventListener("pointerdown", handleMobileFireDown);
+    mobileFireButton.addEventListener("pointerup", handleMobileFireUp);
+    mobileFireButton.addEventListener("pointercancel", handleMobileFireUp);
+    mobileFireButton.addEventListener("lostpointercapture", handleMobileFireUp);
+  }
+}
+
+async function enterPreferredFullscreenAndOrientation() {
+  if (!runtimeIsMobile) {
+    return;
+  }
+
+  const fullscreenTarget = phoneShellElement || document.documentElement;
+  try {
+    if (!document.fullscreenElement && fullscreenTarget.requestFullscreen) {
+      await fullscreenTarget.requestFullscreen({ navigationUI: "hide" });
+    }
+  } catch {
+    // Mobile browsers only allow fullscreen from supported gestures; controls retry on touch.
+  }
+
+  try {
+    if (screen.orientation?.lock) {
+      await screen.orientation.lock("landscape");
+    }
+  } catch {
+    // iOS and some embedded browsers do not expose orientation lock.
+  }
+}
+
+function handleMobilePointerDown(event) {
+  if (!runtimeIsMobile || playerControlState.dead || cameraControlState.freeCamera) {
+    return;
+  }
+
+  if (event.target === mobileFireButton) {
+    return;
+  }
+
+  event.preventDefault();
+  enterPreferredFullscreenAndOrientation();
+
+  const rect = phoneShellElement.getBoundingClientRect();
+  if (event.clientX - rect.left < rect.width * 0.5) {
+    startMobileJoystick(event, rect);
+  } else {
+    startMobileLook(event);
+  }
+}
+
+function handleMobilePointerMove(event) {
+  if (!runtimeIsMobile) {
+    return;
+  }
+
+  if (event.pointerId === playerControlState.virtualMove.pointerId) {
+    event.preventDefault();
+    updateMobileJoystick(event);
+    return;
+  }
+
+  if (event.pointerId === playerControlState.mobileLook.pointerId) {
+    event.preventDefault();
+    updateMobileLook(event);
+  }
+}
+
+function handleMobilePointerUp(event) {
+  if (!runtimeIsMobile) {
+    return;
+  }
+
+  if (event.pointerId === playerControlState.virtualMove.pointerId) {
+    stopMobileJoystick();
+    releasePointerCaptureSafe(phoneShellElement, event.pointerId);
+  }
+
+  if (event.pointerId === playerControlState.mobileLook.pointerId) {
+    stopMobileLook();
+    releasePointerCaptureSafe(phoneShellElement, event.pointerId);
+  }
+}
+
+function startMobileJoystick(event, rect = phoneShellElement.getBoundingClientRect()) {
+  const moveState = playerControlState.virtualMove;
+  moveState.active = true;
+  moveState.pointerId = event.pointerId;
+  moveState.originX = event.clientX;
+  moveState.originY = event.clientY;
+  moveState.x = 0;
+  moveState.y = 0;
+  moveState.magnitude = 0;
+  setPointerCaptureSafe(phoneShellElement, event.pointerId);
+
+  if (mobileJoystickElement) {
+    mobileJoystickElement.style.left = `${event.clientX - rect.left}px`;
+    mobileJoystickElement.style.top = `${event.clientY - rect.top}px`;
+    mobileJoystickElement.classList.add("is-active");
+  }
+
+  updateMobileJoystickStick(0, 0);
+}
+
+function updateMobileJoystick(event) {
+  const moveState = playerControlState.virtualMove;
+  const deltaX = event.clientX - moveState.originX;
+  const deltaY = event.clientY - moveState.originY;
+  const distance = Math.hypot(deltaX, deltaY);
+  const clampedDistance = Math.min(distance, mobileJoystickRadius);
+  const directionX = distance > 0.001 ? deltaX / distance : 0;
+  const directionY = distance > 0.001 ? deltaY / distance : 0;
+  const rawMagnitude = clampedDistance / mobileJoystickRadius;
+  const magnitude = rawMagnitude < mobileJoystickDeadZone ? 0 : rawMagnitude;
+
+  moveState.x = directionX * magnitude;
+  moveState.y = directionY * magnitude;
+  moveState.magnitude = magnitude;
+  updateMobileJoystickStick(directionX * clampedDistance, directionY * clampedDistance);
+}
+
+function updateMobileJoystickStick(offsetX, offsetY) {
+  if (!mobileJoystickStickElement) {
+    return;
+  }
+
+  mobileJoystickStickElement.style.transform = `translate(calc(-50% + ${offsetX}px), calc(-50% + ${offsetY}px))`;
+}
+
+function stopMobileJoystick() {
+  const moveState = playerControlState.virtualMove;
+  moveState.active = false;
+  moveState.pointerId = null;
+  moveState.x = 0;
+  moveState.y = 0;
+  moveState.magnitude = 0;
+  updateMobileJoystickStick(0, 0);
+  mobileJoystickElement?.classList.remove("is-active");
+}
+
+function startMobileLook(event) {
+  const lookState = playerControlState.mobileLook;
+  lookState.active = true;
+  lookState.pointerId = event.pointerId;
+  lookState.lastX = event.clientX;
+  lookState.lastY = event.clientY;
+  setPointerCaptureSafe(phoneShellElement, event.pointerId);
+}
+
+function updateMobileLook(event) {
+  const lookState = playerControlState.mobileLook;
+  const movementX = event.clientX - lookState.lastX;
+  const movementY = event.clientY - lookState.lastY;
+  lookState.lastX = event.clientX;
+  lookState.lastY = event.clientY;
+  applyLookDelta(movementX, movementY, {
+    yawSensitivity: mobileLookYawSensitivity,
+    pitchSensitivity: mobileLookPitchSensitivity,
+  });
+}
+
+function stopMobileLook() {
+  const lookState = playerControlState.mobileLook;
+  lookState.active = false;
+  lookState.pointerId = null;
+}
+
+function handleMobileFireDown(event) {
+  if (!runtimeIsMobile || playerControlState.dead) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  enterPreferredFullscreenAndOrientation();
+  setPointerCaptureSafe(mobileFireButton, event.pointerId);
+  playerControlState.aiming = true;
+  playerControlState.shooting = true;
+  mobileFireButton?.classList.add("is-firing");
+  syncCrosshair();
+}
+
+function handleMobileFireUp(event) {
+  if (!runtimeIsMobile) {
+    return;
+  }
+
+  event.preventDefault?.();
+  event.stopPropagation?.();
+  releasePointerCaptureSafe(mobileFireButton, event.pointerId);
+  playerControlState.shooting = false;
+  playerControlState.aiming = false;
+  mobileFireButton?.classList.remove("is-firing");
+  syncCrosshair();
+}
+
+function setPointerCaptureSafe(element, pointerId) {
+  try {
+    element?.setPointerCapture?.(pointerId);
+  } catch {
+    // Pointer capture is not guaranteed on every embedded mobile browser.
+  }
+}
+
+function releasePointerCaptureSafe(element, pointerId) {
+  try {
+    if (element?.hasPointerCapture?.(pointerId)) {
+      element.releasePointerCapture(pointerId);
+    }
+  } catch {
+    // Pointer capture release can fail if the pointer was already cancelled.
+  }
+}
+
 function createCameraControlState() {
   return {
     freeCamera: false,
@@ -1201,6 +1444,21 @@ function createPlayerControlState() {
     dead: false,
     fireCooldown: 0,
     hitReactTimer: 0,
+    virtualMove: {
+      active: false,
+      pointerId: null,
+      originX: 0,
+      originY: 0,
+      x: 0,
+      y: 0,
+      magnitude: 0,
+    },
+    mobileLook: {
+      active: false,
+      pointerId: null,
+      lastX: 0,
+      lastY: 0,
+    },
   };
 }
 
@@ -1210,6 +1468,8 @@ function setFreeCameraEnabled(enabled) {
   playerControlState.pressedKeys.clear();
   playerControlState.shooting = false;
   playerControlState.aiming = false;
+  stopMobileJoystick();
+  stopMobileLook();
   controls.autoRotate = false;
   controls.enabled = enabled;
 
@@ -1480,6 +1740,10 @@ function handleCameraWheel(event) {
 }
 
 function handlePlayerPointerMove(event) {
+  if (runtimeIsMobile && event.pointerType !== "mouse") {
+    return;
+  }
+
   if (cameraControlState.freeCamera) {
     return;
   }
@@ -1495,27 +1759,17 @@ function handlePlayerPointerMove(event) {
     return;
   }
 
-  const sensitivityMultiplier = playerControlState.aiming ? playerAimMouseSensitivityMultiplier : 1;
-  if (movementX) {
-    playerControlState.yawRadians = normalizeRadians(
-      playerControlState.yawRadians - movementX * playerMouseYawSensitivity * sensitivityMultiplier,
-    );
-  }
-
-  if (movementY) {
-    playerControlState.pitchRadians = THREE.MathUtils.clamp(
-      playerControlState.pitchRadians + movementY * playerMousePitchSensitivity * sensitivityMultiplier,
-      -playerMousePitchLimit,
-      playerMousePitchLimit,
-    );
-  }
-
-  applyPlayerYaw();
-  updateCameraAnchorFromCharacter();
-  applyAnchoredCameraFrame();
+  applyLookDelta(movementX, movementY, {
+    yawSensitivity: playerMouseYawSensitivity,
+    pitchSensitivity: playerMousePitchSensitivity,
+  });
 }
 
 function handlePlayerPointerDown(event) {
+  if (runtimeIsMobile && event.pointerType !== "mouse") {
+    return;
+  }
+
   renderer.domElement.focus();
 
   if (cameraControlState.freeCamera || playerControlState.dead || (event.button !== 0 && event.button !== 2)) {
@@ -1528,6 +1782,10 @@ function handlePlayerPointerDown(event) {
 }
 
 function handlePlayerPointerUp(event) {
+  if (runtimeIsMobile && event.pointerType !== "mouse") {
+    return;
+  }
+
   if (event.button !== 0 && event.button !== 2) {
     return;
   }
@@ -1536,11 +1794,36 @@ function handlePlayerPointerUp(event) {
 }
 
 function handlePlayerMouseButtonChange(event) {
+  if (runtimeIsMobile && event.pointerType !== "mouse") {
+    return;
+  }
+
   if (event.button !== 0 && event.button !== 2) {
     return;
   }
 
   syncPlayerMouseButtons(event);
+}
+
+function applyLookDelta(movementX, movementY, { yawSensitivity, pitchSensitivity }) {
+  const sensitivityMultiplier = playerControlState.aiming ? playerAimMouseSensitivityMultiplier : 1;
+  if (movementX) {
+    playerControlState.yawRadians = normalizeRadians(
+      playerControlState.yawRadians - movementX * yawSensitivity * sensitivityMultiplier,
+    );
+  }
+
+  if (movementY) {
+    playerControlState.pitchRadians = THREE.MathUtils.clamp(
+      playerControlState.pitchRadians + movementY * pitchSensitivity * sensitivityMultiplier,
+      -playerMousePitchLimit,
+      playerMousePitchLimit,
+    );
+  }
+
+  applyPlayerYaw();
+  updateCameraAnchorFromCharacter();
+  applyAnchoredCameraFrame();
 }
 
 function handlePlayerVisibilityChange() {
@@ -1577,6 +1860,7 @@ function clearPlayerMouseButtons() {
   const changed = playerControlState.shooting || playerControlState.aiming;
   playerControlState.shooting = false;
   playerControlState.aiming = false;
+  mobileFireButton?.classList.remove("is-firing");
 
   if (changed) {
     syncCrosshair();
@@ -1637,12 +1921,17 @@ function updatePlayerControls(delta) {
 
   const movement = getPlayerMovementVector();
   const isMoving = movement.lengthSq() > 0.0001;
-  const isRunning = !playerControlState.aiming && playerControlState.pressedKeys.has("shift");
+  const movementAmount = THREE.MathUtils.clamp(movement.length(), 0, 1);
+  const virtualMoveState = playerControlState.virtualMove;
+  const isVirtualRunning = virtualMoveState.active && virtualMoveState.magnitude >= mobileJoystickRunThreshold;
+  const isRunning = !playerControlState.aiming && (
+    playerControlState.pressedKeys.has("shift") || isVirtualRunning
+  );
 
   if (isMoving) {
     const baseSpeed = isRunning ? playerRunSpeed : playerWalkSpeed;
     const speed = playerControlState.aiming ? baseSpeed * playerAimMoveSpeedMultiplier : baseSpeed;
-    movement.normalize().multiplyScalar(speed * delta);
+    movement.normalize().multiplyScalar(speed * movementAmount * delta);
     moveCharacterWithCollision(movement);
     syncMapPlayerPositionFromCharacter();
   }
@@ -1828,6 +2117,12 @@ function getPlayerMovementVector() {
 
   if (playerControlState.pressedKeys.has("d")) {
     playerMoveVector.sub(playerRightVector);
+  }
+
+  const virtualMoveState = playerControlState.virtualMove;
+  if (virtualMoveState.active && virtualMoveState.magnitude > 0) {
+    playerMoveVector.addScaledVector(playerForwardVector, -virtualMoveState.y);
+    playerMoveVector.addScaledVector(playerRightVector, -virtualMoveState.x);
   }
 
   return playerMoveVector;
