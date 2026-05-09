@@ -226,7 +226,7 @@ const mobileJoystickRadius = 58;
 const mobileJoystickDeadZone = 0.08;
 const mobileJoystickRunThreshold = 0.92;
 const playerMaxHealth = 50;
-const playerFireInterval = 1.5;
+const playerFireInterval = 1;
 const projectileMaxDistance = 80;
 const projectileBodyDamage = 2;
 const projectileHeadDamage = 10;
@@ -1560,7 +1560,7 @@ function handleMobileFireDown(event) {
   playerControlState.shooting = true;
   mobileFireButton?.classList.add("is-firing");
   syncCrosshair();
-  tryFirePlayerWeapon();
+  tryFirePlayerWeapon({ force: true });
 }
 
 function handleMobileFireMove(event) {
@@ -2169,7 +2169,7 @@ function syncPlayerMouseButtons(event) {
   }
 
   if (startedShooting) {
-    tryFirePlayerWeapon();
+    tryFirePlayerWeapon({ force: true });
   }
 }
 
@@ -2276,8 +2276,12 @@ function updatePlayerWeaponFire(delta) {
   tryFirePlayerWeapon();
 }
 
-function tryFirePlayerWeapon() {
-  if (!playerControlState.shooting || playerControlState.fireCooldown > 0 || cameraControlState.freeCamera) {
+function tryFirePlayerWeapon({ force = false } = {}) {
+  if (
+    !playerControlState.shooting
+    || (!force && playerControlState.fireCooldown > 0)
+    || cameraControlState.freeCamera
+  ) {
     return false;
   }
 
