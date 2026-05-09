@@ -71,6 +71,14 @@ const colorPanel = document.querySelector("#colorPanel");
 const colorStatus = document.querySelector("#colorStatus");
 const resetColorsButton = document.querySelector("#resetColorsButton");
 const copyColorsButton = document.querySelector("#copyColorsButton");
+const visualHueInput = document.querySelector("#visualHue");
+const visualSaturationInput = document.querySelector("#visualSaturation");
+const visualShadowInput = document.querySelector("#visualShadow");
+const visualHueValue = document.querySelector("#visualHueValue");
+const visualSaturationValue = document.querySelector("#visualSaturationValue");
+const visualShadowValue = document.querySelector("#visualShadowValue");
+const visualTuningStatus = document.querySelector("#visualTuningStatus");
+const copyVisualTuningButton = document.querySelector("#copyVisualTuningButton");
 const modelUrl = new URL("../assets/HUNK.glb", import.meta.url).href;
 const minionUrl = new URL("../assets/minion.glb", import.meta.url).href;
 const runtimeHost = window.location.hostname;
@@ -193,7 +201,7 @@ const mobileJoystickRadius = 58;
 const mobileJoystickDeadZone = 0.08;
 const mobileJoystickRunThreshold = 0.92;
 const playerMaxHealth = 50;
-const playerFireInterval = 0.11;
+const playerFireInterval = 1.5;
 const projectileMaxDistance = 80;
 const projectileBodyDamage = 2;
 const projectileHeadDamage = 10;
@@ -568,6 +576,7 @@ let sourceCharacterTextureSettings = null;
 let activePaletteTexture = null;
 let activeMaskPaletteTexture = null;
 let paletteDraft = createRoguePaletteDraft();
+let visualTuningState = createVisualTuningState();
 let mapEditorState = createInitialMapEditorState();
 let cameraControlState = createCameraControlState();
 let playerControlState = createPlayerControlState();
@@ -624,6 +633,8 @@ function weapon(id, label, file, options = {}) {
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x151515);
+const defaultToneMappingExposure = 1.05;
+const defaultAmbientLightIntensity = 0.62;
 
 const impactGeometry = new THREE.SphereGeometry(0.075, 10, 6);
 const impactMaterial = new THREE.MeshBasicMaterial({
@@ -644,7 +655,7 @@ const renderer = new THREE.WebGLRenderer({
 });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = defaultToneMappingExposure;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
@@ -663,7 +674,7 @@ controls.addEventListener("start", () => {
   controls.autoRotate = false;
 });
 
-const baseAmbientLight = new THREE.HemisphereLight(0xf7efd8, 0x24231f, 0.62);
+const baseAmbientLight = new THREE.HemisphereLight(0xf7efd8, 0x24231f, defaultAmbientLightIntensity);
 scene.add(baseAmbientLight);
 
 const textureLoader = new THREE.TextureLoader();
@@ -691,6 +702,8 @@ setupMobileControls();
 setupAttachmentControls();
 renderColorPanel();
 setupColorControls();
+setupVisualTuningControls();
+applyVisualTuning();
 setupStartScreen();
 syncPlayerHealthHud();
 
@@ -1155,6 +1168,7 @@ function setupCameraControls() {
     event.preventDefault();
   });
   renderer.domElement.addEventListener("pointerdown", handlePlayerPointerDown);
+  window.addEventListener("mousedown", handlePlayerMouseButtonChange);
   window.addEventListener("pointerup", handlePlayerPointerUp);
   window.addEventListener("mouseup", handlePlayerMouseButtonChange);
   window.addEventListener("blur", clearPlayerMouseButtons);
@@ -1206,6 +1220,7 @@ function setupMobileControls() {
 
   if (mobileFireButton) {
     mobileFireButton.addEventListener("pointerdown", handleMobileFireDown);
+    mobileFireButton.addEventListener("pointermove", handleMobileFireMove);
     mobileFireButton.addEventListener("pointerup", handleMobileFireUp);
     mobileFireButton.addEventListener("pointercancel", handleMobileFireUp);
     mobileFireButton.addEventListener("lostpointercapture", handleMobileFireUp);
@@ -1380,10 +1395,26 @@ function handleMobileFireDown(event) {
   event.stopPropagation();
   enterPreferredFullscreenAndOrientation();
   setPointerCaptureSafe(mobileFireButton, event.pointerId);
+  startMobileFireLook(event);
   playerControlState.aiming = true;
   playerControlState.shooting = true;
   mobileFireButton?.classList.add("is-firing");
   syncCrosshair();
+  tryFirePlayerWeapon();
+}
+
+function handleMobileFireMove(event) {
+  if (!runtimeIsMobile) {
+    return;
+  }
+
+  if (event.pointerId !== playerControlState.mobileFire.pointerId) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  updateMobileFireLook(event);
 }
 
 function handleMobileFireUp(event) {
@@ -1393,11 +1424,47 @@ function handleMobileFireUp(event) {
 
   event.preventDefault?.();
   event.stopPropagation?.();
-  releasePointerCaptureSafe(mobileFireButton, event.pointerId);
+  stopMobileFireLook(event.pointerId);
   playerControlState.shooting = false;
   playerControlState.aiming = false;
   mobileFireButton?.classList.remove("is-firing");
   syncCrosshair();
+}
+
+function startMobileFireLook(event) {
+  const fireState = playerControlState.mobileFire;
+  fireState.active = true;
+  fireState.pointerId = event.pointerId;
+  fireState.lastX = event.clientX;
+  fireState.lastY = event.clientY;
+}
+
+function updateMobileFireLook(event) {
+  const fireState = playerControlState.mobileFire;
+  const movementX = event.clientX - fireState.lastX;
+  const movementY = event.clientY - fireState.lastY;
+  fireState.lastX = event.clientX;
+  fireState.lastY = event.clientY;
+
+  if (!movementX && !movementY) {
+    return;
+  }
+
+  applyLookDelta(movementX, movementY, {
+    yawSensitivity: mobileLookYawSensitivity,
+    pitchSensitivity: mobileLookPitchSensitivity,
+  });
+}
+
+function stopMobileFireLook(pointerId = playerControlState.mobileFire.pointerId) {
+  const fireState = playerControlState.mobileFire;
+  if (pointerId !== null && pointerId !== undefined) {
+    releasePointerCaptureSafe(mobileFireButton, pointerId);
+  }
+  fireState.active = false;
+  fireState.pointerId = null;
+  fireState.lastX = 0;
+  fireState.lastY = 0;
 }
 
 function setPointerCaptureSafe(element, pointerId) {
@@ -1434,6 +1501,7 @@ function createCameraControlState() {
 function createPlayerControlState() {
   return {
     pressedKeys: new Set(),
+    mouseButtons: 0,
     shooting: false,
     aiming: false,
     yawRadians: 0,
@@ -1459,6 +1527,12 @@ function createPlayerControlState() {
       lastX: 0,
       lastY: 0,
     },
+    mobileFire: {
+      active: false,
+      pointerId: null,
+      lastX: 0,
+      lastY: 0,
+    },
   };
 }
 
@@ -1468,8 +1542,11 @@ function setFreeCameraEnabled(enabled) {
   playerControlState.pressedKeys.clear();
   playerControlState.shooting = false;
   playerControlState.aiming = false;
+  playerControlState.mouseButtons = 0;
   stopMobileJoystick();
   stopMobileLook();
+  stopMobileFireLook();
+  mobileFireButton?.classList.remove("is-firing");
   controls.autoRotate = false;
   controls.enabled = enabled;
 
@@ -1776,7 +1853,9 @@ function handlePlayerPointerDown(event) {
     return;
   }
 
-  event.preventDefault();
+  if (event.button === 0) {
+    event.preventDefault();
+  }
   requestPlayerPointerLock();
   syncPlayerMouseButtons(event);
 }
@@ -1800,6 +1879,20 @@ function handlePlayerMouseButtonChange(event) {
 
   if (event.button !== 0 && event.button !== 2) {
     return;
+  }
+
+  const isButtonDown = event.type.endsWith("down");
+  if (isButtonDown && !isPlayerMouseInputActive(event)) {
+    return;
+  }
+
+  if (isButtonDown && (cameraControlState.freeCamera || playerControlState.dead)) {
+    return;
+  }
+
+  if (isButtonDown) {
+    event.preventDefault();
+    requestPlayerPointerLock();
   }
 
   syncPlayerMouseButtons(event);
@@ -1833,8 +1926,9 @@ function handlePlayerVisibilityChange() {
 }
 
 function handlePlayerPointerLockChange() {
+  const wasPointerLocked = playerControlState.pointerLocked;
   playerControlState.pointerLocked = document.pointerLockElement === renderer.domElement;
-  if (!playerControlState.pointerLocked) {
+  if (wasPointerLocked && !playerControlState.pointerLocked) {
     clearPlayerMouseButtons();
     return;
   }
@@ -1843,23 +1937,41 @@ function handlePlayerPointerLockChange() {
 }
 
 function syncPlayerMouseButtons(event) {
-  const buttons = Number.isInteger(event.buttons) ? event.buttons : mouseButtonMaskFromEvent(event);
+  const previousButtons = playerControlState.mouseButtons || 0;
+  const changedButton = mouseButtonMaskFromButton(event.button);
+  let buttons = Number.isInteger(event.buttons) ? event.buttons : previousButtons;
+
+  if (event.type.endsWith("down")) {
+    buttons |= changedButton;
+  } else if (event.type.endsWith("up")) {
+    buttons &= ~changedButton;
+  }
+
+  buttons &= 3;
   const nextShooting = Boolean(buttons & 1);
   const nextAiming = Boolean(buttons & 2);
+  const startedShooting = !playerControlState.shooting && nextShooting;
   const changed = playerControlState.shooting !== nextShooting || playerControlState.aiming !== nextAiming;
 
+  playerControlState.mouseButtons = buttons;
   playerControlState.shooting = nextShooting;
   playerControlState.aiming = nextAiming;
 
   if (changed) {
     syncCrosshair();
   }
+
+  if (startedShooting) {
+    tryFirePlayerWeapon();
+  }
 }
 
 function clearPlayerMouseButtons() {
   const changed = playerControlState.shooting || playerControlState.aiming;
+  playerControlState.mouseButtons = 0;
   playerControlState.shooting = false;
   playerControlState.aiming = false;
+  stopMobileFireLook();
   mobileFireButton?.classList.remove("is-firing");
 
   if (changed) {
@@ -1867,18 +1979,22 @@ function clearPlayerMouseButtons() {
   }
 }
 
-function mouseButtonMaskFromEvent(event) {
-  if (event.type.endsWith("down")) {
-    if (event.button === 0) {
-      return 1;
-    }
+function mouseButtonMaskFromButton(button) {
+  if (button === 0) {
+    return 1;
+  }
 
-    if (event.button === 2) {
-      return 2;
-    }
+  if (button === 2) {
+    return 2;
   }
 
   return 0;
+}
+
+function isPlayerMouseInputActive(event) {
+  return document.pointerLockElement === renderer.domElement
+    || event.target === renderer.domElement
+    || isEventInsideRenderer(event);
 }
 
 function requestPlayerPointerLock() {
@@ -1948,18 +2064,25 @@ function updatePlayerControls(delta) {
 
 function updatePlayerWeaponFire(delta) {
   playerControlState.fireCooldown = Math.max(0, playerControlState.fireCooldown - delta);
+  tryFirePlayerWeapon();
+}
 
+function tryFirePlayerWeapon() {
   if (!playerControlState.shooting || playerControlState.fireCooldown > 0 || cameraControlState.freeCamera) {
-    return;
+    return false;
   }
 
-  firePlayerProjectile();
+  if (!firePlayerProjectile()) {
+    return false;
+  }
+
   playerControlState.fireCooldown = playerFireInterval;
+  return true;
 }
 
 function firePlayerProjectile() {
   if (!characterModel || playerControlState.dead) {
-    return;
+    return false;
   }
 
   camera.getWorldDirection(projectileDirection).normalize();
@@ -1980,7 +2103,7 @@ function firePlayerProjectile() {
       : projectileBodyDamage;
     createImpactEffect(enemyHit.point, shotImpactNormal, { hitEnemy: true });
     damageEnemy(enemyHit.enemy, damage, { source: "shot" });
-    return;
+    return true;
   }
 
   if (closestWallDistance < Infinity) {
@@ -1988,6 +2111,8 @@ function firePlayerProjectile() {
     getShotImpactNormal(wallHit, shotImpactNormal);
     createImpactEffect(wallHit.point, shotImpactNormal, { hitEnemy: false });
   }
+
+  return true;
 }
 
 function getClosestProjectileEnemyHit(maxDistance) {
@@ -4325,6 +4450,32 @@ function setupColorControls() {
   });
 }
 
+function setupVisualTuningControls() {
+  const controls = [
+    { key: "hue", input: visualHueInput },
+    { key: "saturation", input: visualSaturationInput },
+    { key: "shadow", input: visualShadowInput },
+  ];
+
+  if (!controls.every((control) => control.input)) {
+    return;
+  }
+
+  for (const control of controls) {
+    control.input.addEventListener("input", () => {
+      visualTuningState[control.key] = Number(control.input.value);
+      applyVisualTuning();
+      setVisualTuningStatus("Ajustado");
+    });
+  }
+
+  copyVisualTuningButton?.addEventListener("click", () => {
+    copyVisualTuningInfo();
+  });
+
+  syncVisualTuningControls();
+}
+
 function renderColorPanel() {
   colorPanel.textContent = "";
 
@@ -4415,6 +4566,14 @@ function syncPaletteControl(control, color) {
 function createRoguePaletteDraft() {
   return {
     ...rogueDefaultSlots,
+  };
+}
+
+function createVisualTuningState() {
+  return {
+    hue: 0,
+    saturation: 1,
+    shadow: 1,
   };
 }
 
@@ -4632,8 +4791,158 @@ async function copyPaletteInfo() {
   }
 }
 
+function applyVisualTuning() {
+  const values = getVisualTuningValues();
+  visualTuningState = {
+    hue: values.hue,
+    saturation: values.saturation,
+    shadow: values.shadow,
+  };
+
+  if (sceneElement) {
+    sceneElement.style.filter = values.isDefault ? "" : values.cssFilter;
+  }
+
+  renderer.toneMappingExposure = values.toneMappingExposure;
+  baseAmbientLight.intensity = values.ambientLightIntensity;
+  syncVisualTuningControls();
+}
+
+function syncVisualTuningControls() {
+  if (visualHueInput) {
+    visualHueInput.value = String(visualTuningState.hue);
+  }
+
+  if (visualSaturationInput) {
+    visualSaturationInput.value = String(visualTuningState.saturation);
+  }
+
+  if (visualShadowInput) {
+    visualShadowInput.value = String(visualTuningState.shadow);
+  }
+
+  if (visualHueValue) {
+    visualHueValue.value = formatVisualHue(visualTuningState.hue);
+    visualHueValue.textContent = formatVisualHue(visualTuningState.hue);
+  }
+
+  if (visualSaturationValue) {
+    visualSaturationValue.value = formatVisualRatio(visualTuningState.saturation);
+    visualSaturationValue.textContent = formatVisualRatio(visualTuningState.saturation);
+  }
+
+  if (visualShadowValue) {
+    visualShadowValue.value = formatVisualRatio(visualTuningState.shadow);
+    visualShadowValue.textContent = formatVisualRatio(visualTuningState.shadow);
+  }
+}
+
+function getVisualTuningValues() {
+  const hue = Math.round(clampFiniteNumber(visualTuningState.hue, -180, 180, 0));
+  const saturation = roundVisualNumber(clampFiniteNumber(visualTuningState.saturation, 0, 2, 1));
+  const shadow = roundVisualNumber(clampFiniteNumber(visualTuningState.shadow, 0, 2, 1));
+  const contrast = roundVisualNumber(shadow >= 1
+    ? 1 + (shadow - 1) * 0.36
+    : 1 - (1 - shadow) * 0.22);
+  const brightness = roundVisualNumber(shadow >= 1
+    ? 1 - (shadow - 1) * 0.1
+    : 1 + (1 - shadow) * 0.1);
+  const ambientMultiplier = shadow >= 1
+    ? 1 - (shadow - 1) * 0.28
+    : 1 + (1 - shadow) * 0.22;
+  const ambientLightIntensity = roundVisualNumber(defaultAmbientLightIntensity * ambientMultiplier);
+  const toneMappingExposure = defaultToneMappingExposure;
+  const cssFilter = [
+    `hue-rotate(${hue}deg)`,
+    `saturate(${formatCssNumber(saturation)})`,
+    `contrast(${formatCssNumber(contrast)})`,
+    `brightness(${formatCssNumber(brightness)})`,
+  ].join(" ");
+  const isDefault = hue === 0 && saturation === 1 && shadow === 1;
+
+  return {
+    hue,
+    saturation,
+    shadow,
+    contrast,
+    brightness,
+    ambientLightIntensity,
+    toneMappingExposure,
+    cssFilter,
+    appliedFilter: isDefault ? "none" : cssFilter,
+    isDefault,
+  };
+}
+
+async function copyVisualTuningInfo() {
+  const values = getVisualTuningValues();
+  const text = [
+    "Ajustes visuais do jogo",
+    `Cor: ${formatVisualHue(values.hue)}`,
+    `Saturacao: ${formatVisualRatio(values.saturation)}`,
+    `Sombra: ${formatVisualRatio(values.shadow)}`,
+    `Filtro CSS sugerido: ${values.appliedFilter}`,
+    `renderer.toneMappingExposure: ${formatCssNumber(values.toneMappingExposure)}`,
+    `baseAmbientLight.intensity: ${formatCssNumber(values.ambientLightIntensity)}`,
+    "",
+    "JSON:",
+    JSON.stringify(
+      {
+        type: "visual-tuning",
+        values: {
+          hueDegrees: values.hue,
+          saturation: values.saturation,
+          shadow: values.shadow,
+        },
+        implementation: {
+          cssFilter: values.appliedFilter,
+          toneMappingExposure: values.toneMappingExposure,
+          ambientLightIntensity: values.ambientLightIntensity,
+        },
+      },
+      null,
+      2,
+    ),
+  ].join("\n");
+
+  try {
+    await navigator.clipboard.writeText(text);
+    setVisualTuningStatus("Copiado");
+  } catch {
+    copyTextFallback(text);
+    setVisualTuningStatus("Copiado");
+  }
+}
+
 function setColorStatus(message) {
   colorStatus.textContent = message;
+}
+
+function setVisualTuningStatus(message) {
+  if (visualTuningStatus) {
+    visualTuningStatus.textContent = message;
+  }
+}
+
+function clampFiniteNumber(value, min, max, fallback) {
+  const number = Number(value);
+  return THREE.MathUtils.clamp(Number.isFinite(number) ? number : fallback, min, max);
+}
+
+function roundVisualNumber(value) {
+  return Number(Number(value).toFixed(3));
+}
+
+function formatVisualHue(value) {
+  return `${Math.round(value)} deg`;
+}
+
+function formatVisualRatio(value) {
+  return `${Number(value).toFixed(2)}x`;
+}
+
+function formatCssNumber(value) {
+  return String(Number(Number(value).toFixed(3)));
 }
 
 function setWeaponOffset(axis, value) {
@@ -5672,9 +5981,8 @@ function syncCrosshair() {
     return;
   }
 
-  const isVisible = Boolean(
-    characterModel && !cameraControlState.freeCamera && playerControlState.aiming && !playerControlState.dead,
-  );
+  const canShowCrosshair = Boolean(characterModel && !cameraControlState.freeCamera && !playerControlState.dead);
+  const isVisible = canShowCrosshair && (runtimeIsMobile || playerControlState.aiming);
   crosshairElement.classList.toggle("is-visible", isVisible);
   crosshairElement.classList.toggle("is-firing", isVisible && playerControlState.shooting);
 }

@@ -274,6 +274,11 @@ body.is-runtime-mobile .phone-shell {
   height: 100%;
 }
 
+.scene {
+  transition: filter 140ms ease;
+  will-change: filter;
+}
+
 .scene canvas {
   display: block;
   touch-action: none;
@@ -750,7 +755,7 @@ body.is-runtime-mobile .phone-shell {
   right: 14px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 10px;
   pointer-events: none;
 }
@@ -766,7 +771,7 @@ body.is-runtime-mobile .phone-shell {
 }
 
 .hud span {
-  max-width: 34%;
+  max-width: min(100%, 180px);
   overflow: hidden;
   padding: 7px 10px;
   font-size: 12px;
@@ -775,7 +780,7 @@ body.is-runtime-mobile .phone-shell {
   white-space: nowrap;
 }
 
-.hud span:last-child {
+.hud span[data-health-hud] {
   color: #e4d383;
 }
 
@@ -829,6 +834,15 @@ body.is-runtime-mobile .phone-shell {
 
 .crosshair__arm {
   border-radius: 999px;
+}
+
+body.is-runtime-mobile .crosshair.is-visible .crosshair__arm {
+  opacity: 0;
+  transition: opacity 90ms ease;
+}
+
+body.is-runtime-mobile .crosshair.is-firing .crosshair__arm {
+  opacity: 1;
 }
 
 .crosshair__arm--top,
