@@ -29,7 +29,7 @@ body {
   overflow: hidden;
   background:
     linear-gradient(180deg, rgb(0 0 0 / 18%) 0%, rgb(0 0 0 / 10%) 34%, rgb(0 0 0 / 52%) 100%),
-    #050505 url("./assets/title-screen-vertical.png") center / auto 100% no-repeat;
+    #050505 url("./assets/title-screen-landscape.png") center / auto 100% no-repeat;
   transition:
     opacity 300ms ease,
     visibility 300ms ease;
