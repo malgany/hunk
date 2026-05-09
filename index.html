@@ -4,25 +4,28 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Rank - HUNK 3D</title>
+    <link rel="icon" href="data:," />
     <link rel="preload" href="./assets/title-screen-landscape.png" as="image" type="image/png" />
     <link rel="stylesheet" href="./styles.css" />
     <script type="importmap">
       {
         "imports": {
-          "three": "https://cdn.jsdelivr.net/npm/three@0.176.0/build/three.module.js",
-          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.176.0/examples/jsm/"
+          "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/"
         }
       }
     </script>
   </head>
   <body>
     <div class="start-screen" id="startScreen" role="dialog" aria-modal="true" aria-labelledby="startTitle">
-      <div class="start-menu">
-        <h1 class="start-title" id="startTitle" aria-label="The Rank">
-          <span class="start-title__the">The</span>
-          <span class="start-title__rank">Rank</span>
-        </h1>
-        <button class="start-button" id="startButton" type="button">GAME START</button>
+      <div class="start-frame">
+        <div class="start-menu">
+          <h1 class="start-title" id="startTitle" aria-label="The Rank">
+            <span class="start-title__the">The</span>
+            <span class="start-title__rank">Rank</span>
+          </h1>
+          <button class="start-button" id="startButton" type="button">GAME START</button>
+        </div>
       </div>
     </div>
     <div class="dev-layout">
@@ -95,7 +98,6 @@
               <button id="mapZoomOut" type="button" aria-label="Diminuir zoom">-</button>
               <button id="mapZoomReset" type="button">Fit</button>
               <button id="mapZoomIn" type="button" aria-label="Aumentar zoom">+</button>
-              <button id="applyMapButton" type="button">Aplicar</button>
             </div>
             <div class="tile-editor-options" aria-label="Opcoes de construcao">
               <label class="toggle-row" for="showTileEdges">
@@ -163,6 +165,9 @@
                   <span class="map-tool-icon map-tool-icon--enemy" aria-hidden="true"></span>
                 </button>
               </div>
+            </div>
+            <div class="map-editor-actions">
+              <button id="applyMapButton" type="button">Aplicar</button>
             </div>
             <p class="map-feedback" id="mapFeedback" aria-live="polite">Mapa aplicado</p>
           </section>
@@ -343,25 +348,47 @@
             <small id="visualTuningStatus" aria-live="polite">Padrao</small>
           </div>
           <section class="rank-panel visual-tuning-panel" aria-label="Ajustes visuais do jogo">
-            <label class="control-field range-field" for="visualHue">
-              <span>Cor</span>
+            <label class="control-field range-field" for="visualExposure">
+              <span>Exposicao</span>
               <span class="range-control">
-                <input id="visualHue" type="range" min="-180" max="180" step="1" value="0" />
-                <output id="visualHueValue" for="visualHue">0 deg</output>
+                <input id="visualExposure" type="range" min="0.4" max="2" step="0.05" value="1" />
+                <output id="visualExposureValue" for="visualExposure">1.00</output>
               </span>
             </label>
-            <label class="control-field range-field" for="visualSaturation">
-              <span>Saturacao</span>
+            <label class="control-field range-field" for="visualAmbientLight">
+              <span>Luz ambiente</span>
               <span class="range-control">
-                <input id="visualSaturation" type="range" min="0" max="2" step="0.05" value="1" />
-                <output id="visualSaturationValue" for="visualSaturation">1.00x</output>
+                <input id="visualAmbientLight" type="range" min="0" max="3" step="0.05" value="1.05" />
+                <output id="visualAmbientLightValue" for="visualAmbientLight">1.05</output>
               </span>
             </label>
-            <label class="control-field range-field" for="visualShadow">
-              <span>Sombra</span>
+            <label class="control-field range-field" for="visualDirectLight">
+              <span>Luz direta</span>
               <span class="range-control">
-                <input id="visualShadow" type="range" min="0" max="2" step="0.05" value="1" />
-                <output id="visualShadowValue" for="visualShadow">1.00x</output>
+                <input id="visualDirectLight" type="range" min="0" max="4" step="0.05" value="1.75" />
+                <output id="visualDirectLightValue" for="visualDirectLight">1.75</output>
+              </span>
+            </label>
+            <label class="control-field range-field" for="visualLightDirection">
+              <span>Direcao da luz</span>
+              <span class="range-control">
+                <input id="visualLightDirection" type="range" min="0" max="360" step="1" value="111" />
+                <output id="visualLightDirectionValue" for="visualLightDirection">111deg</output>
+              </span>
+            </label>
+            <label class="control-field range-field" for="visualFog">
+              <span>Nevoa</span>
+              <span class="range-control">
+                <input id="visualFog" type="range" min="0" max="0.05" step="0.001" value="0" />
+                <output id="visualFogValue" for="visualFog">0.000</output>
+              </span>
+            </label>
+            <label class="toggle-row" for="collisionDebug">
+              <span>Ver colisoes</span>
+              <span class="toggle-control">
+                <input id="collisionDebug" type="checkbox" />
+                <span class="toggle-track" aria-hidden="true"></span>
+                <span class="toggle-value" id="collisionDebugValue">Nao</span>
               </span>
             </label>
             <button class="camera-copy-button" id="copyVisualTuningButton" type="button">Copiar infos</button>

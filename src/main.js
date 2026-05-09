@@ -71,12 +71,18 @@ const colorPanel = document.querySelector("#colorPanel");
 const colorStatus = document.querySelector("#colorStatus");
 const resetColorsButton = document.querySelector("#resetColorsButton");
 const copyColorsButton = document.querySelector("#copyColorsButton");
-const visualHueInput = document.querySelector("#visualHue");
-const visualSaturationInput = document.querySelector("#visualSaturation");
-const visualShadowInput = document.querySelector("#visualShadow");
-const visualHueValue = document.querySelector("#visualHueValue");
-const visualSaturationValue = document.querySelector("#visualSaturationValue");
-const visualShadowValue = document.querySelector("#visualShadowValue");
+const visualExposureInput = document.querySelector("#visualExposure");
+const visualAmbientLightInput = document.querySelector("#visualAmbientLight");
+const visualDirectLightInput = document.querySelector("#visualDirectLight");
+const visualLightDirectionInput = document.querySelector("#visualLightDirection");
+const visualFogInput = document.querySelector("#visualFog");
+const collisionDebugInput = document.querySelector("#collisionDebug");
+const visualExposureValue = document.querySelector("#visualExposureValue");
+const visualAmbientLightValue = document.querySelector("#visualAmbientLightValue");
+const visualDirectLightValue = document.querySelector("#visualDirectLightValue");
+const visualLightDirectionValue = document.querySelector("#visualLightDirectionValue");
+const visualFogValue = document.querySelector("#visualFogValue");
+const collisionDebugValue = document.querySelector("#collisionDebugValue");
 const visualTuningStatus = document.querySelector("#visualTuningStatus");
 const copyVisualTuningButton = document.querySelector("#copyVisualTuningButton");
 const modelUrl = new URL("../assets/HUNK.glb", import.meta.url).href;
@@ -113,6 +119,8 @@ const sewerTextureUrls = {
     { id: "concrete-dirty-2", label: "Concreto escuro", url: new URL("../assets/Sewer/Textures/concrete_dirty_2.jpg", import.meta.url).href, repeatX: 1.45, repeatY: 1.45, color: 0x777263 },
   ],
 };
+const sewerMaterialOptions = createSewerMaterialOptions(sewerTextureUrls);
+const sewerMaterialIds = new Set(sewerMaterialOptions.map((material) => material.id));
 const defaultMapMaterials = {
   floor: sewerTextureUrls.floor[0].id,
   wall: sewerTextureUrls.wall[0].id,
@@ -158,6 +166,11 @@ const cameraCollisionWallPadding = 0.42;
 const cameraCollisionReturnDamping = 12;
 const cameraCollisionSearchSteps = 14;
 const cameraCollisionSearchIterations = 8;
+const cameraCloseViewRatioStart = 0.42;
+const cameraCloseViewRatioEnd = 0.18;
+const playerCameraFadeStartDistance = 1.7;
+const playerCameraFadeEndDistance = 0.85;
+const playerCameraFadeDamping = 11;
 const cameraCollisionProbeOffsets = [
   [0, 0],
   [1, 0],
@@ -183,6 +196,12 @@ const defaultCameraOffset = {
   y: 1.2,
   z: 0.2,
 };
+const defaultToneMappingExposure = 1;
+const defaultAmbientLightIntensity = 1.05;
+const defaultDirectLightIntensity = 1.75;
+const defaultLightDirectionDegrees = 111;
+const defaultFogDensity = 0;
+const visualFogColor = 0x0b140f;
 const defaultPlayerAimPitchRadians = THREE.MathUtils.degToRad(7.63);
 const freeCameraMoveSpeed = 12;
 const freeCameraWheelSpeed = 0.018;
@@ -207,6 +226,9 @@ const projectileBodyDamage = 2;
 const projectileHeadDamage = 10;
 const impactEffectDuration = 0.22;
 const impactLightIntensity = 5.6;
+const muzzleFlashDuration = 0.12;
+const muzzleFlashLightIntensity = 15;
+const playerShotAnimationDuration = 0.32;
 const enemyHitReactDuration = 0.18;
 const enemyMaxHealth = 20;
 const enemyVisionDistance = platformTileSize * 7.2;
@@ -216,6 +238,10 @@ const enemyAttackRange = 1.65;
 const enemyAttackDamage = 6;
 const enemyAttackCooldown = 1.25;
 const enemyAttackHitTime = 0.42;
+const collisionDebugFillOpacity = 0.18;
+const collisionDebugEdgeOpacity = 0.78;
+const collisionDebugPlayerColor = 0x3ccfff;
+const collisionDebugEnemyColor = 0xff5d4e;
 const enemySpawnGroundChance = 0.05;
 const enemyAwakenFloorLongChance = 0.07;
 const enemyAwakenFloorChance = 0.18;
@@ -580,11 +606,14 @@ let visualTuningState = createVisualTuningState();
 let mapEditorState = createInitialMapEditorState();
 let cameraControlState = createCameraControlState();
 let playerControlState = createPlayerControlState();
+let collisionDebugState = createCollisionDebugState();
 let platformGroup = null;
 let enemySourceModel = null;
 let enemyGroup = null;
 let activeEnemies = [];
 let activeImpactEffects = [];
+let activeMuzzleFlashes = [];
+let playerCameraOpacity = 1;
 const wallOcclusionRaycaster = new THREE.Raycaster();
 const wallOcclusionTarget = new THREE.Vector3();
 const wallOccluders = new Set();
@@ -600,17 +629,27 @@ const enemyProjectileRaycaster = new THREE.Raycaster();
 const projectileDirection = new THREE.Vector3();
 const shotImpactPoint = new THREE.Vector3();
 const shotImpactNormal = new THREE.Vector3();
+const muzzleFlashPosition = new THREE.Vector3();
+const muzzleFlashWeaponCenter = new THREE.Vector3();
+const muzzleFlashWeaponSize = new THREE.Vector3();
+const muzzleFlashWeaponBox = new THREE.Box3();
 const cameraCollisionRaycaster = new THREE.Raycaster();
 const cameraCollisionDirection = new THREE.Vector3();
 const cameraCollisionRayDirection = new THREE.Vector3();
 const cameraCollisionResolvedPosition = new THREE.Vector3();
 const cameraCollisionProbePosition = new THREE.Vector3();
+const cameraCloseLookDirection = new THREE.Vector3();
+const cameraCloseLookTarget = new THREE.Vector3();
+const cameraBlendedLookTarget = new THREE.Vector3();
 const playerMoveVector = new THREE.Vector3();
 const playerForwardVector = new THREE.Vector3();
 const playerRightVector = new THREE.Vector3();
 const playerAnchorBox = new THREE.Box3();
 const playerAnchorSize = new THREE.Vector3();
 const playerAnchorCenter = new THREE.Vector3();
+const playerFadeMaterialState = new WeakMap();
+const collisionDebugBoundsBox = new THREE.Box3();
+const collisionDebugBoundsSize = new THREE.Vector3();
 let sceneLoadStarted = false;
 
 function clip(id, loop = false, options = {}) {
@@ -633,8 +672,6 @@ function weapon(id, label, file, options = {}) {
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x151515);
-const defaultToneMappingExposure = 1.05;
-const defaultAmbientLightIntensity = 0.62;
 
 const impactGeometry = new THREE.SphereGeometry(0.075, 10, 6);
 const impactMaterial = new THREE.MeshBasicMaterial({
@@ -644,6 +681,16 @@ const impactMaterial = new THREE.MeshBasicMaterial({
   blending: THREE.AdditiveBlending,
   depthWrite: false,
 });
+const muzzleFlashGeometry = new THREE.SphereGeometry(0.18, 12, 8);
+const muzzleFlashMaterial = new THREE.MeshBasicMaterial({
+  color: 0xfff1c1,
+  transparent: true,
+  opacity: 0.96,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const collisionDebugBoxGeometry = new THREE.BoxGeometry(1, 1, 1);
+const collisionDebugEdgesGeometry = new THREE.EdgesGeometry(collisionDebugBoxGeometry);
 
 const camera = new THREE.PerspectiveCamera(42, 1, 0.05, 120);
 camera.position.set(7, 5.2, 9.5);
@@ -657,7 +704,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = defaultToneMappingExposure;
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 sceneElement.appendChild(renderer.domElement);
 
@@ -677,12 +724,18 @@ controls.addEventListener("start", () => {
 const baseAmbientLight = new THREE.HemisphereLight(0xf7efd8, 0x24231f, defaultAmbientLightIntensity);
 scene.add(baseAmbientLight);
 
+const baseDirectLight = new THREE.DirectionalLight(0xfff2cf, defaultDirectLightIntensity);
+baseDirectLight.name = "RuntimeDirectLight";
+baseDirectLight.target.name = "RuntimeDirectLightTarget";
+scene.add(baseDirectLight, baseDirectLight.target);
+
 const textureLoader = new THREE.TextureLoader();
 const sewerSurfaceVariants = {
   floor: sewerTextureUrls.floor.map(loadSewerSurfaceVariant),
   wall: sewerTextureUrls.wall.map(loadSewerSurfaceVariant),
   ceiling: sewerTextureUrls.ceiling.map(loadSewerSurfaceVariant),
 };
+const sewerMaterialVariants = sewerMaterialOptions.map(loadSewerSurfaceVariant);
 
 document.body.classList.toggle("is-runtime-local", runtimeIsLocal);
 document.body.classList.toggle("is-runtime-static", runtimeIsStaticHosted);
@@ -728,9 +781,25 @@ function loadSewerTexture(url, repeatX = 1, repeatY = 1) {
   return texture;
 }
 
-const clock = new THREE.Clock();
-renderer.setAnimationLoop(() => {
-  const delta = clock.getDelta();
+function createSewerMaterialOptions(textureGroups) {
+  const materialsById = new Map();
+
+  for (const group of Object.values(textureGroups)) {
+    for (const material of group) {
+      if (!materialsById.has(material.id)) {
+        materialsById.set(material.id, material);
+      }
+    }
+  }
+
+  return [...materialsById.values()];
+}
+
+const timer = new THREE.Timer();
+timer.connect(document);
+renderer.setAnimationLoop((timestamp) => {
+  timer.update(timestamp);
+  const delta = timer.getDelta();
 
   if (!cameraControlState.freeCamera) {
     updatePlayerControls(delta);
@@ -749,6 +818,8 @@ renderer.setAnimationLoop(() => {
     controls.update(delta);
   }
 
+  updatePlayerCameraFade(delta);
+  updateCollisionDebug();
   updateWallOcclusion();
   renderer.render(scene, camera);
 });
@@ -931,6 +1002,7 @@ function prepareHeldItem(item) {
     node.castShadow = false;
     node.receiveShadow = false;
     node.frustumCulled = true;
+    node.material = cloneMaterialCollection(node.material);
 
     const materials = Array.isArray(node.material) ? node.material : [node.material];
     for (const material of materials) {
@@ -1511,6 +1583,7 @@ function createPlayerControlState() {
     health: playerMaxHealth,
     dead: false,
     fireCooldown: 0,
+    shotAnimationTimer: 0,
     hitReactTimer: 0,
     virtualMove: {
       active: false,
@@ -1533,6 +1606,15 @@ function createPlayerControlState() {
       lastX: 0,
       lastY: 0,
     },
+  };
+}
+
+function createCollisionDebugState() {
+  return {
+    enabled: false,
+    group: null,
+    playerBox: null,
+    enemyBoxes: new Map(),
   };
 }
 
@@ -1617,13 +1699,41 @@ function applyAnchoredCameraFrame(delta = 1 / 60) {
   const target = cameraControlState.anchorTarget.clone().add(targetOffset);
   const desiredPosition = cameraControlState.anchorTarget.clone().add(cameraOffset);
   const resolvedPosition = resolveAnchoredCameraPosition(cameraControlState.anchorTarget, desiredPosition, delta);
+  const viewTarget = resolveAnchoredCameraViewTarget(desiredPosition, target, resolvedPosition);
 
-  controls.target.copy(target);
+  controls.target.copy(viewTarget);
   camera.position.copy(resolvedPosition);
-  camera.lookAt(target);
+  camera.lookAt(viewTarget);
   cameraControlState.anchorDistance = camera.position.distanceTo(target);
   camera.updateProjectionMatrix();
   controls.update();
+}
+
+function resolveAnchoredCameraViewTarget(desiredPosition, target, resolvedPosition) {
+  const collisionRatio = Number.isFinite(cameraControlState.collisionRatio)
+    ? cameraControlState.collisionRatio
+    : 1;
+  const closeBlend = 1 - THREE.MathUtils.smoothstep(
+    collisionRatio,
+    cameraCloseViewRatioEnd,
+    cameraCloseViewRatioStart,
+  );
+
+  if (closeBlend <= 0.001) {
+    return target;
+  }
+
+  const idealLookDistance = target.distanceTo(desiredPosition);
+  if (idealLookDistance <= 0.001) {
+    return target;
+  }
+
+  cameraCloseLookDirection.copy(target).sub(desiredPosition).normalize();
+  cameraCloseLookTarget
+    .copy(resolvedPosition)
+    .addScaledVector(cameraCloseLookDirection, idealLookDistance);
+
+  return cameraBlendedLookTarget.copy(target).lerp(cameraCloseLookTarget, closeBlend);
 }
 
 function resolveAnchoredCameraPosition(origin, desiredPosition, delta) {
@@ -2052,18 +2162,20 @@ function updatePlayerControls(delta) {
     syncMapPlayerPositionFromCharacter();
   }
 
+  updatePlayerWeaponFire(delta);
   playerControlState.hitReactTimer = Math.max(0, playerControlState.hitReactTimer - delta);
+  const isShotAnimating = playerControlState.shotAnimationTimer > 0;
   if (playerControlState.hitReactTimer <= 0) {
-    updatePlayerAnimation(isMoving, isRunning, playerControlState.shooting, playerControlState.aiming);
+    updatePlayerAnimation(isMoving, isRunning, isShotAnimating, playerControlState.aiming);
   }
 
-  updatePlayerWeaponFire(delta);
   updateCameraAnchorFromCharacter();
   applyAnchoredCameraFrame(delta);
 }
 
 function updatePlayerWeaponFire(delta) {
   playerControlState.fireCooldown = Math.max(0, playerControlState.fireCooldown - delta);
+  playerControlState.shotAnimationTimer = Math.max(0, playerControlState.shotAnimationTimer - delta);
   tryFirePlayerWeapon();
 }
 
@@ -2076,6 +2188,7 @@ function tryFirePlayerWeapon() {
     return false;
   }
 
+  playerControlState.shotAnimationTimer = playerShotAnimationDuration;
   playerControlState.fireCooldown = playerFireInterval;
   return true;
 }
@@ -2086,6 +2199,7 @@ function firePlayerProjectile() {
   }
 
   camera.getWorldDirection(projectileDirection).normalize();
+  createMuzzleFlash(projectileDirection);
   enemyProjectileRaycaster.set(camera.position, projectileDirection);
   enemyProjectileRaycaster.near = 0;
   enemyProjectileRaycaster.far = projectileMaxDistance;
@@ -2169,8 +2283,61 @@ function createImpactEffect(point, normal, { hitEnemy = false } = {}) {
   });
 }
 
+function createMuzzleFlash(direction) {
+  if (!characterModel) {
+    return;
+  }
+
+  getMuzzleFlashPosition(direction, muzzleFlashPosition);
+
+  const material = muzzleFlashMaterial.clone();
+  const mesh = new THREE.Mesh(muzzleFlashGeometry, material);
+  const light = new THREE.PointLight(0xffe0a8, muzzleFlashLightIntensity, 4.8, 2);
+
+  mesh.name = "WeaponMuzzleFlash";
+  mesh.position.copy(muzzleFlashPosition);
+  mesh.scale.setScalar(1.25);
+  light.position.copy(muzzleFlashPosition);
+  scene.add(mesh, light);
+  activeMuzzleFlashes.push({
+    mesh,
+    light,
+    age: 0,
+    duration: muzzleFlashDuration,
+    baseScale: 1.25,
+  });
+}
+
+function getMuzzleFlashPosition(direction, target) {
+  if (currentHeldItem) {
+    muzzleFlashWeaponBox.setFromObject(currentHeldItem);
+    if (!muzzleFlashWeaponBox.isEmpty()) {
+      muzzleFlashWeaponBox.getCenter(muzzleFlashWeaponCenter);
+      muzzleFlashWeaponBox.getSize(muzzleFlashWeaponSize);
+      const forwardOffset = Math.max(
+        muzzleFlashWeaponSize.x,
+        muzzleFlashWeaponSize.y,
+        muzzleFlashWeaponSize.z,
+        0.28,
+      ) * 0.48;
+      return target.copy(muzzleFlashWeaponCenter).addScaledVector(direction, forwardOffset);
+    }
+
+    currentHeldItem.getWorldPosition(target);
+    return target.addScaledVector(direction, 0.42);
+  }
+
+  if (heldSlot) {
+    heldSlot.getWorldPosition(target);
+    return target.addScaledVector(direction, 0.48);
+  }
+
+  return target.copy(camera.position).addScaledVector(direction, 0.85);
+}
+
 function updateImpactEffects(delta) {
   if (!activeImpactEffects.length) {
+    updateMuzzleFlashes(delta);
     return;
   }
 
@@ -2189,6 +2356,32 @@ function updateImpactEffects(delta) {
       effect.light.removeFromParent();
       effect.mesh.material.dispose();
       activeImpactEffects.splice(index, 1);
+    }
+  }
+
+  updateMuzzleFlashes(delta);
+}
+
+function updateMuzzleFlashes(delta) {
+  if (!activeMuzzleFlashes.length) {
+    return;
+  }
+
+  for (let index = activeMuzzleFlashes.length - 1; index >= 0; index -= 1) {
+    const flash = activeMuzzleFlashes[index];
+    flash.age += delta;
+    const progress = THREE.MathUtils.clamp(flash.age / flash.duration, 0, 1);
+    const fade = 1 - progress;
+
+    flash.mesh.scale.setScalar(flash.baseScale * (1 + progress * 2.2));
+    flash.mesh.material.opacity = 0.96 * fade;
+    flash.light.intensity = muzzleFlashLightIntensity * fade;
+
+    if (progress >= 1) {
+      flash.mesh.removeFromParent();
+      flash.light.removeFromParent();
+      flash.mesh.material.dispose();
+      activeMuzzleFlashes.splice(index, 1);
     }
   }
 }
@@ -2220,6 +2413,14 @@ function clearImpactEffects() {
   }
 
   activeImpactEffects = [];
+
+  for (const flash of activeMuzzleFlashes) {
+    flash.mesh.removeFromParent();
+    flash.light.removeFromParent();
+    flash.mesh.material.dispose();
+  }
+
+  activeMuzzleFlashes = [];
 }
 
 function getPlayerMovementVector() {
@@ -2405,6 +2606,81 @@ function updateCameraAnchorFromCharacter() {
     Math.max(1.45, Math.min(playerAnchorSize.y * 0.45, 2.7)),
     playerAnchorCenter.z,
   );
+}
+
+function updatePlayerCameraFade(delta) {
+  if (!characterModel) {
+    return;
+  }
+
+  const targetOpacity = getPlayerCameraTargetOpacity();
+  const smoothingDelta = Number.isFinite(delta) && delta > 0 ? delta : 1 / 60;
+  let nextOpacity = THREE.MathUtils.damp(
+    playerCameraOpacity,
+    targetOpacity,
+    playerCameraFadeDamping,
+    smoothingDelta,
+  );
+
+  if (Math.abs(nextOpacity - targetOpacity) < 0.006) {
+    nextOpacity = targetOpacity;
+  }
+
+  if (Math.abs(nextOpacity - playerCameraOpacity) < 0.001) {
+    return;
+  }
+
+  playerCameraOpacity = nextOpacity;
+  applyPlayerCameraOpacity(playerCameraOpacity);
+}
+
+function getPlayerCameraTargetOpacity() {
+  if (cameraControlState.freeCamera) {
+    return 1;
+  }
+
+  const cameraDistance = camera.position.distanceTo(cameraControlState.anchorTarget);
+  return THREE.MathUtils.smoothstep(
+    cameraDistance,
+    playerCameraFadeEndDistance,
+    playerCameraFadeStartDistance,
+  );
+}
+
+function applyPlayerCameraOpacity(opacity) {
+  const clampedOpacity = THREE.MathUtils.clamp(opacity, 0, 1);
+
+  characterModel.traverse((node) => {
+    if (!node.isMesh || !node.material) {
+      return;
+    }
+
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    for (const material of materials) {
+      if (!material) {
+        continue;
+      }
+
+      const original = getPlayerFadeMaterialState(material);
+      const isFaded = clampedOpacity < 0.999;
+      material.transparent = original.transparent || isFaded;
+      material.opacity = original.opacity * clampedOpacity;
+      material.depthWrite = isFaded ? false : original.depthWrite;
+      material.needsUpdate = true;
+    }
+  });
+}
+
+function getPlayerFadeMaterialState(material) {
+  if (!playerFadeMaterialState.has(material)) {
+    playerFadeMaterialState.set(material, {
+      opacity: Number.isFinite(material.opacity) ? material.opacity : 1,
+      transparent: Boolean(material.transparent),
+      depthWrite: material.depthWrite !== false,
+    });
+  }
+
+  return playerFadeMaterialState.get(material);
 }
 
 function updateFreeCamera(delta) {
@@ -2713,8 +2989,7 @@ function normalizeMapEnemy(enemy, activeTiles = mapEditorState?.activeTiles) {
 }
 
 function normalizeMapMaterialId(surface, value) {
-  const variants = sewerTextureUrls[surface] || [];
-  return variants.some((variant) => variant.id === value) ? value : defaultMapMaterials[surface];
+  return sewerMaterialIds.has(value) ? value : defaultMapMaterials[surface];
 }
 
 function normalizeMapDirection(value) {
@@ -2766,7 +3041,7 @@ function populateMapMaterialControls() {
     }
 
     control.select.replaceChildren();
-    for (const variant of sewerTextureUrls[surface] || []) {
+    for (const variant of sewerMaterialOptions) {
       const option = document.createElement("option");
       option.value = variant.id;
       option.textContent = variant.label;
@@ -4328,6 +4603,164 @@ function disposeObject3D(object) {
   }
 }
 
+function setCollisionDebugEnabled(enabled) {
+  collisionDebugState.enabled = Boolean(enabled);
+
+  if (!collisionDebugState.enabled) {
+    clearCollisionDebugBoxes();
+  }
+
+  syncCollisionDebugControl();
+}
+
+function syncCollisionDebugControl() {
+  if (!collisionDebugInput || !collisionDebugValue) {
+    return;
+  }
+
+  collisionDebugInput.checked = collisionDebugState.enabled;
+  collisionDebugValue.textContent = collisionDebugState.enabled ? "Sim" : "Nao";
+}
+
+function updateCollisionDebug() {
+  if (!collisionDebugState.enabled) {
+    return;
+  }
+
+  const group = getCollisionDebugGroup();
+
+  if (characterModel) {
+    if (!collisionDebugState.playerBox) {
+      collisionDebugState.playerBox = createCollisionDebugBox("PlayerCollisionDebug", collisionDebugPlayerColor);
+      group.add(collisionDebugState.playerBox);
+    }
+
+    updateCollisionDebugBoxTransform(
+      collisionDebugState.playerBox,
+      characterModel,
+      playerCollisionRadius + playerWallCollisionPadding,
+      5.2,
+    );
+  } else if (collisionDebugState.playerBox) {
+    removeCollisionDebugBox(collisionDebugState.playerBox);
+    collisionDebugState.playerBox = null;
+  }
+
+  const liveEnemyIds = new Set();
+  for (const enemy of activeEnemies) {
+    liveEnemyIds.add(enemy.id);
+    let debugBox = collisionDebugState.enemyBoxes.get(enemy.id);
+    if (!debugBox) {
+      debugBox = createCollisionDebugBox(`EnemyCollisionDebug:${enemy.id}`, collisionDebugEnemyColor);
+      collisionDebugState.enemyBoxes.set(enemy.id, debugBox);
+      group.add(debugBox);
+    }
+
+    updateCollisionDebugBoxTransform(
+      debugBox,
+      enemy.model,
+      enemyCollisionRadius + playerWallCollisionPadding,
+      4.68,
+    );
+  }
+
+  for (const [enemyId, debugBox] of collisionDebugState.enemyBoxes) {
+    if (!liveEnemyIds.has(enemyId)) {
+      removeCollisionDebugBox(debugBox);
+      collisionDebugState.enemyBoxes.delete(enemyId);
+    }
+  }
+}
+
+function getCollisionDebugGroup() {
+  if (!collisionDebugState.group) {
+    collisionDebugState.group = new THREE.Group();
+    collisionDebugState.group.name = "RuntimeCollisionDebug";
+  }
+
+  if (!collisionDebugState.group.parent) {
+    scene.add(collisionDebugState.group);
+  }
+
+  return collisionDebugState.group;
+}
+
+function createCollisionDebugBox(name, color) {
+  const group = new THREE.Group();
+  const fill = new THREE.Mesh(
+    collisionDebugBoxGeometry,
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: collisionDebugFillOpacity,
+      depthTest: false,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  const edges = new THREE.LineSegments(
+    collisionDebugEdgesGeometry,
+    new THREE.LineBasicMaterial({
+      color,
+      transparent: true,
+      opacity: collisionDebugEdgeOpacity,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+
+  group.name = name;
+  fill.name = `${name}:Fill`;
+  edges.name = `${name}:Edges`;
+  fill.renderOrder = 50;
+  edges.renderOrder = 51;
+  group.add(fill, edges);
+  return group;
+}
+
+function updateCollisionDebugBoxTransform(debugBox, model, radius, fallbackHeight) {
+  let height = fallbackHeight;
+  let centerY = fallbackHeight / 2;
+
+  collisionDebugBoundsBox.setFromObject(model);
+  if (!collisionDebugBoundsBox.isEmpty()) {
+    collisionDebugBoundsBox.getSize(collisionDebugBoundsSize);
+    if (Number.isFinite(collisionDebugBoundsSize.y) && collisionDebugBoundsSize.y > 0.001) {
+      height = collisionDebugBoundsSize.y;
+      centerY = collisionDebugBoundsBox.min.y + height / 2;
+    }
+  }
+
+  debugBox.position.set(model.position.x, centerY, model.position.z);
+  debugBox.scale.set(radius * 2, height, radius * 2);
+}
+
+function clearCollisionDebugBoxes() {
+  if (collisionDebugState.playerBox) {
+    removeCollisionDebugBox(collisionDebugState.playerBox);
+    collisionDebugState.playerBox = null;
+  }
+
+  for (const debugBox of collisionDebugState.enemyBoxes.values()) {
+    removeCollisionDebugBox(debugBox);
+  }
+  collisionDebugState.enemyBoxes.clear();
+
+  if (collisionDebugState.group) {
+    scene.remove(collisionDebugState.group);
+  }
+}
+
+function removeCollisionDebugBox(debugBox) {
+  debugBox.removeFromParent();
+  debugBox.traverse((node) => {
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    for (const material of materials) {
+      material?.dispose?.();
+    }
+  });
+}
+
 function collectWallOccluders(object) {
   wallOccluders.clear();
 
@@ -4452,9 +4885,11 @@ function setupColorControls() {
 
 function setupVisualTuningControls() {
   const controls = [
-    { key: "hue", input: visualHueInput },
-    { key: "saturation", input: visualSaturationInput },
-    { key: "shadow", input: visualShadowInput },
+    { key: "exposure", input: visualExposureInput },
+    { key: "ambientLight", input: visualAmbientLightInput },
+    { key: "directLight", input: visualDirectLightInput },
+    { key: "lightDirection", input: visualLightDirectionInput },
+    { key: "fog", input: visualFogInput },
   ];
 
   if (!controls.every((control) => control.input)) {
@@ -4473,7 +4908,12 @@ function setupVisualTuningControls() {
     copyVisualTuningInfo();
   });
 
+  collisionDebugInput?.addEventListener("change", () => {
+    setCollisionDebugEnabled(collisionDebugInput.checked);
+  });
+
   syncVisualTuningControls();
+  syncCollisionDebugControl();
 }
 
 function renderColorPanel() {
@@ -4571,9 +5011,11 @@ function createRoguePaletteDraft() {
 
 function createVisualTuningState() {
   return {
-    hue: 0,
-    saturation: 1,
-    shadow: 1,
+    exposure: defaultToneMappingExposure,
+    ambientLight: defaultAmbientLightIntensity,
+    directLight: defaultDirectLightIntensity,
+    lightDirection: defaultLightDirectionDegrees,
+    fog: defaultFogDensity,
   };
 }
 
@@ -4794,110 +5236,154 @@ async function copyPaletteInfo() {
 function applyVisualTuning() {
   const values = getVisualTuningValues();
   visualTuningState = {
-    hue: values.hue,
-    saturation: values.saturation,
-    shadow: values.shadow,
+    exposure: values.exposure,
+    ambientLight: values.ambientLight,
+    directLight: values.directLight,
+    lightDirection: values.lightDirection,
+    fog: values.fog,
   };
 
   if (sceneElement) {
-    sceneElement.style.filter = values.isDefault ? "" : values.cssFilter;
+    sceneElement.style.filter = "";
   }
 
-  renderer.toneMappingExposure = values.toneMappingExposure;
-  baseAmbientLight.intensity = values.ambientLightIntensity;
+  renderer.toneMappingExposure = values.exposure;
+  baseAmbientLight.intensity = values.ambientLight;
+  baseDirectLight.intensity = values.directLight;
+  applyDirectLightDirection(values.lightDirection);
+  scene.fog = values.fog > 0 ? new THREE.FogExp2(visualFogColor, values.fog) : null;
   syncVisualTuningControls();
 }
 
 function syncVisualTuningControls() {
-  if (visualHueInput) {
-    visualHueInput.value = String(visualTuningState.hue);
+  if (visualExposureInput) {
+    visualExposureInput.value = String(visualTuningState.exposure);
   }
 
-  if (visualSaturationInput) {
-    visualSaturationInput.value = String(visualTuningState.saturation);
+  if (visualAmbientLightInput) {
+    visualAmbientLightInput.value = String(visualTuningState.ambientLight);
   }
 
-  if (visualShadowInput) {
-    visualShadowInput.value = String(visualTuningState.shadow);
+  if (visualDirectLightInput) {
+    visualDirectLightInput.value = String(visualTuningState.directLight);
   }
 
-  if (visualHueValue) {
-    visualHueValue.value = formatVisualHue(visualTuningState.hue);
-    visualHueValue.textContent = formatVisualHue(visualTuningState.hue);
+  if (visualLightDirectionInput) {
+    visualLightDirectionInput.value = String(visualTuningState.lightDirection);
   }
 
-  if (visualSaturationValue) {
-    visualSaturationValue.value = formatVisualRatio(visualTuningState.saturation);
-    visualSaturationValue.textContent = formatVisualRatio(visualTuningState.saturation);
+  if (visualFogInput) {
+    visualFogInput.value = String(visualTuningState.fog);
   }
 
-  if (visualShadowValue) {
-    visualShadowValue.value = formatVisualRatio(visualTuningState.shadow);
-    visualShadowValue.textContent = formatVisualRatio(visualTuningState.shadow);
+  if (visualExposureValue) {
+    visualExposureValue.value = formatVisualDecimal(visualTuningState.exposure);
+    visualExposureValue.textContent = formatVisualDecimal(visualTuningState.exposure);
+  }
+
+  if (visualAmbientLightValue) {
+    visualAmbientLightValue.value = formatVisualDecimal(visualTuningState.ambientLight);
+    visualAmbientLightValue.textContent = formatVisualDecimal(visualTuningState.ambientLight);
+  }
+
+  if (visualDirectLightValue) {
+    visualDirectLightValue.value = formatVisualDecimal(visualTuningState.directLight);
+    visualDirectLightValue.textContent = formatVisualDecimal(visualTuningState.directLight);
+  }
+
+  if (visualLightDirectionValue) {
+    visualLightDirectionValue.value = formatVisualDegrees(visualTuningState.lightDirection);
+    visualLightDirectionValue.textContent = formatVisualDegrees(visualTuningState.lightDirection);
+  }
+
+  if (visualFogValue) {
+    visualFogValue.value = formatVisualFog(visualTuningState.fog);
+    visualFogValue.textContent = formatVisualFog(visualTuningState.fog);
   }
 }
 
 function getVisualTuningValues() {
-  const hue = Math.round(clampFiniteNumber(visualTuningState.hue, -180, 180, 0));
-  const saturation = roundVisualNumber(clampFiniteNumber(visualTuningState.saturation, 0, 2, 1));
-  const shadow = roundVisualNumber(clampFiniteNumber(visualTuningState.shadow, 0, 2, 1));
-  const contrast = roundVisualNumber(shadow >= 1
-    ? 1 + (shadow - 1) * 0.36
-    : 1 - (1 - shadow) * 0.22);
-  const brightness = roundVisualNumber(shadow >= 1
-    ? 1 - (shadow - 1) * 0.1
-    : 1 + (1 - shadow) * 0.1);
-  const ambientMultiplier = shadow >= 1
-    ? 1 - (shadow - 1) * 0.28
-    : 1 + (1 - shadow) * 0.22;
-  const ambientLightIntensity = roundVisualNumber(defaultAmbientLightIntensity * ambientMultiplier);
-  const toneMappingExposure = defaultToneMappingExposure;
-  const cssFilter = [
-    `hue-rotate(${hue}deg)`,
-    `saturate(${formatCssNumber(saturation)})`,
-    `contrast(${formatCssNumber(contrast)})`,
-    `brightness(${formatCssNumber(brightness)})`,
-  ].join(" ");
-  const isDefault = hue === 0 && saturation === 1 && shadow === 1;
+  const exposure = roundVisualNumber(clampFiniteNumber(visualTuningState.exposure, 0.4, 2, defaultToneMappingExposure));
+  const ambientLight = roundVisualNumber(clampFiniteNumber(
+    visualTuningState.ambientLight,
+    0,
+    3,
+    defaultAmbientLightIntensity,
+  ));
+  const directLight = roundVisualNumber(clampFiniteNumber(
+    visualTuningState.directLight,
+    0,
+    4,
+    defaultDirectLightIntensity,
+  ));
+  const lightDirection = Math.round(clampFiniteNumber(
+    visualTuningState.lightDirection,
+    0,
+    360,
+    defaultLightDirectionDegrees,
+  ));
+  const fog = roundVisualNumber(clampFiniteNumber(visualTuningState.fog, 0, 0.05, defaultFogDensity));
+  const isDefault = exposure === defaultToneMappingExposure
+    && ambientLight === defaultAmbientLightIntensity
+    && directLight === defaultDirectLightIntensity
+    && lightDirection === defaultLightDirectionDegrees
+    && fog === defaultFogDensity;
 
   return {
-    hue,
-    saturation,
-    shadow,
-    contrast,
-    brightness,
-    ambientLightIntensity,
-    toneMappingExposure,
-    cssFilter,
-    appliedFilter: isDefault ? "none" : cssFilter,
+    exposure,
+    ambientLight,
+    directLight,
+    lightDirection,
+    fog,
     isDefault,
   };
+}
+
+function applyDirectLightDirection(directionDegrees) {
+  const angle = THREE.MathUtils.degToRad(directionDegrees);
+  const radius = platformTileSize * 4.2;
+
+  baseDirectLight.position.set(
+    Math.sin(angle) * radius,
+    platformTileSize * 4.8,
+    Math.cos(angle) * radius,
+  );
+  baseDirectLight.target.position.set(0, 0, 0);
+  baseDirectLight.target.updateMatrixWorld();
 }
 
 async function copyVisualTuningInfo() {
   const values = getVisualTuningValues();
   const text = [
     "Ajustes visuais do jogo",
-    `Cor: ${formatVisualHue(values.hue)}`,
-    `Saturacao: ${formatVisualRatio(values.saturation)}`,
-    `Sombra: ${formatVisualRatio(values.shadow)}`,
-    `Filtro CSS sugerido: ${values.appliedFilter}`,
-    `renderer.toneMappingExposure: ${formatCssNumber(values.toneMappingExposure)}`,
-    `baseAmbientLight.intensity: ${formatCssNumber(values.ambientLightIntensity)}`,
+    `Exposicao: ${formatVisualDecimal(values.exposure)}`,
+    `Luz ambiente: ${formatVisualDecimal(values.ambientLight)}`,
+    `Luz direta: ${formatVisualDecimal(values.directLight)}`,
+    `Direcao da luz: ${formatVisualDegrees(values.lightDirection)}`,
+    `Nevoa: ${formatVisualFog(values.fog)}`,
+    `renderer.toneMappingExposure: ${formatCssNumber(values.exposure)}`,
+    `baseAmbientLight.intensity: ${formatCssNumber(values.ambientLight)}`,
+    `baseDirectLight.intensity: ${formatCssNumber(values.directLight)}`,
+    `baseDirectLight.directionDegrees: ${Math.round(values.lightDirection)}`,
+    `scene.fogDensity: ${formatVisualFog(values.fog)}`,
     "",
     "JSON:",
     JSON.stringify(
       {
         type: "visual-tuning",
         values: {
-          hueDegrees: values.hue,
-          saturation: values.saturation,
-          shadow: values.shadow,
+          exposure: values.exposure,
+          ambientLight: values.ambientLight,
+          directLight: values.directLight,
+          lightDirectionDegrees: values.lightDirection,
+          fog: values.fog,
         },
         implementation: {
-          cssFilter: values.appliedFilter,
-          toneMappingExposure: values.toneMappingExposure,
-          ambientLightIntensity: values.ambientLightIntensity,
+          toneMappingExposure: values.exposure,
+          ambientLightIntensity: values.ambientLight,
+          directLightIntensity: values.directLight,
+          directLightDirectionDegrees: values.lightDirection,
+          fogDensity: values.fog,
         },
       },
       null,
@@ -4933,12 +5419,16 @@ function roundVisualNumber(value) {
   return Number(Number(value).toFixed(3));
 }
 
-function formatVisualHue(value) {
-  return `${Math.round(value)} deg`;
+function formatVisualDecimal(value) {
+  return Number(value).toFixed(2);
 }
 
-function formatVisualRatio(value) {
-  return `${Number(value).toFixed(2)}x`;
+function formatVisualDegrees(value) {
+  return `${Math.round(value)}deg`;
+}
+
+function formatVisualFog(value) {
+  return Number(value).toFixed(3);
 }
 
 function formatCssNumber(value) {
@@ -5404,7 +5894,10 @@ function createSewerShadowLightIndexSet(lightTiles, focalPoint = null) {
 
 function getSewerSurfaceVariant(surface, materialId) {
   const variants = sewerSurfaceVariants[surface] || sewerSurfaceVariants.floor;
-  return variants.find((variant) => variant.id === materialId) || variants[0];
+  return variants.find((variant) => variant.id === materialId)
+    || sewerMaterialVariants.find((variant) => variant.id === materialId)
+    || variants[0]
+    || sewerMaterialVariants[0];
 }
 
 function pickSewerSurfaceVariant(surface, seed) {
