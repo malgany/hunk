@@ -31,11 +31,11 @@
     <div class="dev-layout">
       <nav class="dev-tabs" role="tablist" aria-label="Paineis de ajustes">
         <button
-          class="dev-tab is-active"
+          class="dev-tab"
           id="devTabMap"
           type="button"
           role="tab"
-          aria-selected="true"
+          aria-selected="false"
           aria-controls="devPanelMap"
           data-dev-tab="map"
         >Mapa tiles</button>
@@ -82,12 +82,13 @@
       </nav>
       <div class="dev-side-stack dev-side-stack--left">
         <aside
-          class="dev-panel dev-panel--left tile-editor-panel dev-tab-panel is-active"
+          class="dev-panel dev-panel--left tile-editor-panel dev-tab-panel"
           id="devPanelMap"
           role="tabpanel"
           aria-labelledby="devTabMap"
           data-dev-panel="map"
           aria-label="Editor top-down de tiles"
+          hidden
         >
           <div class="panel-heading">
             <span>Mapa tiles</span>

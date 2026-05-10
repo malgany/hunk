@@ -57,6 +57,7 @@ const ceilingMaterialPreview = document.querySelector("#ceilingMaterialPreview")
 const materialPreviewPopover = document.querySelector("#materialPreviewPopover");
 const materialPreviewPopoverImage = document.querySelector("#materialPreviewPopoverImage");
 const materialPreviewPopoverLabel = document.querySelector("#materialPreviewPopoverLabel");
+const devLayoutElement = document.querySelector(".dev-layout");
 const devTabButtons = document.querySelectorAll("[data-dev-tab]");
 const devTabPanels = document.querySelectorAll("[data-dev-panel]");
 const cameraStatus = document.querySelector("#cameraStatus");
@@ -181,6 +182,20 @@ const cameraCollisionSearchSteps = 14;
 const cameraCollisionSearchIterations = 8;
 const cameraCloseViewRatioStart = 0.42;
 const cameraCloseViewRatioEnd = 0.18;
+const gameplayCameraIntroDuration = 5;
+const gameplayCameraIntroGoBannerDuration = 0.65;
+const gameplayCameraIntroDollyRatio = 0.72;
+const gameplayCameraIntroStartDistance = 12.5;
+const gameplayCameraIntroMidDistance = 2.25;
+const gameplayCameraIntroStartHeight = 3.9;
+const gameplayCameraIntroFaceHeight = 4.15;
+const gameplayCameraIntroTargetHeight = 3.55;
+const gameplayCameraOutroDuration = 4.2;
+const gameplayCameraOutroPivotRatio = 0.42;
+const gameplayCameraOutroNearDistance = 2.35;
+const gameplayCameraOutroFarDistance = 12.5;
+const gameplayCameraOutroFaceHeight = 4.1;
+const gameplayCameraOutroTargetHeight = 3.55;
 const playerCameraFadeStartDistance = 1.7;
 const playerCameraFadeStartCollisionRatio = 0.68;
 const cameraCollisionProbeOffsets = [
@@ -290,6 +305,7 @@ const enemyVisionDistance = platformTileSize * 7.2;
 const enemyWalkSpeed = 1.35;
 const enemyPathRepathInterval = 0.45;
 const enemyPathWaypointRadius = 0.32;
+const enemyInitialInactiveFloorChance = 0.5;
 const enemyCollisionRadius = 0.75;
 const enemyAttackRange = 1.65;
 const enemyAttackDamage = 6;
@@ -304,6 +320,12 @@ const enemyDownedSecondsMin = 1.8;
 const enemyDownedSecondsMax = 3.2;
 const performanceProfile = createPerformanceProfile();
 const defaultMovementId = "Idle_A";
+const bossClearCelebrationAnimationIds = [
+  "EXPERIMENTAL_Medium_Transform",
+  "Push_Ups",
+  "Cheering",
+  "Sit_Ups",
+];
 const defaultWeaponId = "pew";
 const rogueTextureAtlas = {
   size: 1024,
@@ -655,6 +677,9 @@ const maskAtlasMaterials = new Set();
 const enemyAnimationIds = [
   "Skeletons_Idle",
   "Skeletons_Walking",
+  "Skeletons_Awaken_Floor",
+  "Skeletons_Awaken_Floor_Long",
+  "Skeletons_Inactive_Floor_Pose",
   "Skeletons_Spawn_Ground",
   "Skeletons_Death",
   "Skeletons_Death_Pose",
@@ -665,6 +690,7 @@ const enemyAnimationIds = [
 const enemyLoopingAnimations = new Set([
   "Skeletons_Idle",
   "Skeletons_Walking",
+  "Skeletons_Inactive_Floor_Pose",
   "Skeletons_Death_Pose",
 ]);
 const enemyPrimaryAttackAnimation = "Melee_Unarmed_Attack_Punch_A";
@@ -715,6 +741,8 @@ let visualTuningState = createVisualTuningState();
 let mapEditorState = createInitialMapEditorState();
 let cameraControlState = createCameraControlState();
 let playerControlState = createPlayerControlState();
+let gameplayCameraIntroState = createGameplayCameraIntroState();
+let gameplayCameraOutroState = createGameplayCameraOutroState();
 let collisionDebugState = createCollisionDebugState();
 let platformGroup = null;
 let enemySourceModel = null;
@@ -796,6 +824,12 @@ const anchoredCameraTargetPosition = new THREE.Vector3();
 const anchoredCameraDesiredPosition = new THREE.Vector3();
 const anchoredCameraYawAxis = new THREE.Vector3(0, 1, 0);
 const anchoredCameraPitchAxis = new THREE.Vector3();
+const gameplayCameraIntroForward = new THREE.Vector3();
+const gameplayCameraIntroPosition = new THREE.Vector3();
+const gameplayCameraIntroTarget = new THREE.Vector3();
+const gameplayCameraOutroForward = new THREE.Vector3();
+const gameplayCameraOutroPosition = new THREE.Vector3();
+const gameplayCameraOutroTarget = new THREE.Vector3();
 const playerMoveVector = new THREE.Vector3();
 const playerForwardVector = new THREE.Vector3();
 const playerRightVector = new THREE.Vector3();
@@ -1029,8 +1063,14 @@ timer.connect(document);
 renderer.setAnimationLoop((timestamp) => {
   timer.update(timestamp);
   const delta = timer.getDelta();
+  const gameplayIntroActive = isGameplayCameraIntroActive();
+  const gameplayOutroActive = isGameplayCameraOutroActive();
 
-  if (!cameraControlState.freeCamera) {
+  if (gameplayIntroActive) {
+    updateGameplayCameraIntro(delta);
+  } else if (gameplayOutroActive) {
+    updateGameplayCameraOutro(delta);
+  } else if (!cameraControlState.freeCamera) {
     updatePlayerControls(delta);
   }
 
@@ -1039,20 +1079,22 @@ renderer.setAnimationLoop((timestamp) => {
   }
 
   updateImpactEffects(delta);
-  updateEnemies(delta);
-  updateEnemyCombatIndicators(delta);
-  updateAmmoPickups(delta);
-  updateAmmoPickupToast(delta);
-  updateCorpseSearch(delta);
-  updateCorpseSearchPrompt();
-  updateFloorLoot(delta);
-  updateStageFlow(delta);
-  updateRunTimer();
+  if (!gameplayIntroActive) {
+    updateEnemies(delta);
+    updateEnemyCombatIndicators(delta);
+    updateAmmoPickups(delta);
+    updateAmmoPickupToast(delta);
+    updateCorpseSearch(delta);
+    updateCorpseSearchPrompt();
+    updateFloorLoot(delta);
+    updateStageFlow(delta);
+    updateRunTimer();
+  }
   updateDeferredMapEditorSync(delta);
 
   if (cameraControlState.freeCamera) {
     updateFreeCamera(delta);
-  } else {
+  } else if (!gameplayIntroActive && !gameplayOutroActive) {
     controls.update(delta);
   }
 
@@ -1422,14 +1464,14 @@ function setupDevPanelTabs() {
 
   for (const button of devTabButtons) {
     button.addEventListener("click", () => {
-      setActiveDevPanel(button.dataset.devTab, { focusTab: false });
+      const nextTabId = button.getAttribute("aria-selected") === "true" ? null : button.dataset.devTab;
+      setActiveDevPanel(nextTabId, { focusTab: false });
     });
     button.addEventListener("keydown", handleDevTabKeydown);
   }
 
-  const selectedTab = [...devTabButtons].find((button) => button.getAttribute("aria-selected") === "true")
-    || devTabButtons[0];
-  setActiveDevPanel(selectedTab?.dataset.devTab || "map", { focusTab: false });
+  const selectedTab = [...devTabButtons].find((button) => button.getAttribute("aria-selected") === "true");
+  setActiveDevPanel(selectedTab?.dataset.devTab || null, { focusTab: false });
 }
 
 function handleDevTabKeydown(event) {
@@ -1464,11 +1506,15 @@ function handleDevTabKeydown(event) {
 }
 
 function setActiveDevPanel(tabId, { focusTab = false } = {}) {
-  for (const button of devTabButtons) {
+  const hasActivePanel = Boolean(tabId);
+  const buttons = [...devTabButtons];
+  devLayoutElement?.classList.toggle("has-dev-panel-open", hasActivePanel);
+
+  for (const [index, button] of buttons.entries()) {
     const isActive = button.dataset.devTab === tabId;
     button.classList.toggle("is-active", isActive);
     button.setAttribute("aria-selected", String(isActive));
-    button.tabIndex = isActive ? 0 : -1;
+    button.tabIndex = isActive || (!hasActivePanel && index === 0) ? 0 : -1;
     if (isActive && focusTab) {
       button.focus();
     }
@@ -1673,6 +1719,8 @@ async function restartRun() {
 
 function exitRunToStart() {
   clearPlayerMouseButtons();
+  cancelGameplayCameraIntro();
+  cancelGameplayCameraOutro();
   resetCorpseSearchState();
   clearManualMovementPreview();
   hideRunSummaryModal();
@@ -1692,7 +1740,10 @@ async function startGameplayRun() {
   hideStageBanner();
   clearPlayerMouseButtons();
   phoneShellElement?.classList.remove("is-player-hit");
+  cancelGameplayCameraIntro();
+  cancelGameplayCameraOutro();
   playerControlState = createPlayerControlState();
+  runTimingState = createRunTimingState();
   resetCorpseSearchState();
   clearManualMovementPreview();
   activeWeapon = weaponById.get(defaultWeaponId) || weaponOptions[0];
@@ -1701,13 +1752,13 @@ async function startGameplayRun() {
   loadMapFloorIntoEditor(firstFloor, 0);
   await equipWeapon(defaultWeaponId);
   playMovement(defaultMovementId, { restart: true });
-  startRunTimer(0);
   syncPlayerHealthHud();
   syncPlayerAmmoHud();
   syncWeaponSlotHud();
   syncCrosshair();
-  setStatus("Carregado", "done");
-  window.setTimeout(() => hideStatus(), 550);
+  syncRunTimerHud();
+  startGameplayCameraIntro({ startRunTimerOnComplete: true });
+  setStatus("Preparando", "done");
 }
 
 function setupWeaponSlotHud() {
@@ -1733,7 +1784,13 @@ function setupCorpseSearchControls() {
 }
 
 function handleMobilePointerDown(event) {
-  if (!runtimeIsMobile || playerControlState.dead || cameraControlState.freeCamera || corpseSearchState.active) {
+  if (
+    !runtimeIsMobile
+    || isGameplayInputLocked()
+    || playerControlState.dead
+    || cameraControlState.freeCamera
+    || corpseSearchState.active
+  ) {
     return;
   }
 
@@ -1870,7 +1927,7 @@ function stopMobileLook() {
 }
 
 function handleMobileFireDown(event) {
-  if (!runtimeIsMobile || playerControlState.dead || corpseSearchState.active) {
+  if (!runtimeIsMobile || isGameplayInputLocked() || playerControlState.dead || corpseSearchState.active) {
     return;
   }
 
@@ -1982,6 +2039,37 @@ function createCameraControlState() {
   };
 }
 
+function createGameplayCameraIntroState() {
+  return {
+    active: false,
+    timer: 0,
+    duration: gameplayCameraIntroDuration,
+    startPosition: new THREE.Vector3(),
+    midPosition: new THREE.Vector3(),
+    endPosition: new THREE.Vector3(),
+    startTarget: new THREE.Vector3(),
+    midTarget: new THREE.Vector3(),
+    endTarget: new THREE.Vector3(),
+    startRunTimerOnComplete: false,
+    runTimerFloorIndex: 0,
+    countdownText: "",
+  };
+}
+
+function createGameplayCameraOutroState() {
+  return {
+    active: false,
+    timer: 0,
+    duration: gameplayCameraOutroDuration,
+    startPosition: new THREE.Vector3(),
+    nearPosition: new THREE.Vector3(),
+    endPosition: new THREE.Vector3(),
+    startTarget: new THREE.Vector3(),
+    nearTarget: new THREE.Vector3(),
+    endTarget: new THREE.Vector3(),
+  };
+}
+
 function createPlayerControlState() {
   return {
     pressedKeys: new Set(),
@@ -2048,6 +2136,13 @@ function createCollisionDebugState() {
 }
 
 function setFreeCameraEnabled(enabled) {
+  if (enabled && isGameplayCameraIntroActive()) {
+    completeGameplayCameraIntro();
+  }
+  if (enabled && isGameplayCameraOutroActive()) {
+    completeGameplayCameraOutro();
+  }
+
   cameraControlState.freeCamera = enabled;
   cameraControlState.pressedKeys.clear();
   playerControlState.pressedKeys.clear();
@@ -2143,6 +2238,309 @@ function applyAnchoredCameraFrame(delta = 1 / 60) {
   cameraControlState.anchorDistance = camera.position.distanceTo(target);
   camera.updateProjectionMatrix();
   controls.update();
+}
+
+function startGameplayCameraIntro({ startRunTimerOnComplete = false, floorIndex = 0 } = {}) {
+  if (!characterModel || cameraControlState.freeCamera) {
+    if (startRunTimerOnComplete) {
+      startRunTimer(floorIndex);
+    }
+    return;
+  }
+
+  clearPlayerMouseButtons();
+  playerControlState.pressedKeys.clear();
+  cameraControlState.pressedKeys.clear();
+  stopMobileJoystick();
+  stopMobileLook();
+  stopMobileFireLook();
+  updateCameraAnchorFromCharacter();
+  applyAnchoredCameraFrame(1 / 60);
+
+  gameplayCameraIntroState = createGameplayCameraIntroState();
+  gameplayCameraIntroState.active = true;
+  gameplayCameraIntroState.startRunTimerOnComplete = startRunTimerOnComplete;
+  gameplayCameraIntroState.runTimerFloorIndex = floorIndex;
+  gameplayCameraIntroState.endPosition.copy(camera.position);
+  gameplayCameraIntroState.endTarget.copy(controls.target);
+
+  gameplayCameraIntroForward.set(
+    Math.sin(playerControlState.yawRadians),
+    0,
+    Math.cos(playerControlState.yawRadians),
+  );
+  if (gameplayCameraIntroForward.lengthSq() <= 0.0001) {
+    gameplayCameraIntroForward.set(0, 0, 1);
+  }
+  gameplayCameraIntroForward.normalize();
+
+  gameplayCameraIntroState.startTarget.set(
+    characterModel.position.x,
+    gameplayCameraIntroTargetHeight,
+    characterModel.position.z,
+  );
+  gameplayCameraIntroState.midTarget.copy(gameplayCameraIntroState.startTarget);
+  gameplayCameraIntroState.startPosition
+    .copy(characterModel.position)
+    .addScaledVector(gameplayCameraIntroForward, gameplayCameraIntroStartDistance);
+  gameplayCameraIntroState.startPosition.y = gameplayCameraIntroStartHeight;
+  gameplayCameraIntroState.midPosition
+    .copy(characterModel.position)
+    .addScaledVector(gameplayCameraIntroForward, gameplayCameraIntroMidDistance);
+  gameplayCameraIntroState.midPosition.y = gameplayCameraIntroFaceHeight;
+
+  camera.position.copy(gameplayCameraIntroState.startPosition);
+  controls.target.copy(gameplayCameraIntroState.startTarget);
+  camera.lookAt(controls.target);
+  cameraControlState.anchorDistance = camera.position.distanceTo(controls.target);
+  showRunTimerReadyState();
+  updateGameplayCameraIntroCountdown(0);
+  syncCrosshair();
+}
+
+function updateGameplayCameraIntro(delta) {
+  if (!gameplayCameraIntroState.active) {
+    return;
+  }
+
+  gameplayCameraIntroState.timer += Math.max(0, delta);
+  const progress = THREE.MathUtils.clamp(
+    gameplayCameraIntroState.timer / Math.max(gameplayCameraIntroState.duration, 0.001),
+    0,
+    1,
+  );
+  updateGameplayCameraIntroCountdown(progress);
+
+  if (progress < gameplayCameraIntroDollyRatio) {
+    const dollyProgress = easeGameplayCameraIntro(progress / gameplayCameraIntroDollyRatio);
+    gameplayCameraIntroPosition.lerpVectors(
+      gameplayCameraIntroState.startPosition,
+      gameplayCameraIntroState.midPosition,
+      dollyProgress,
+    );
+    gameplayCameraIntroTarget.lerpVectors(
+      gameplayCameraIntroState.startTarget,
+      gameplayCameraIntroState.midTarget,
+      dollyProgress,
+    );
+  } else {
+    const orbitProgress = easeGameplayCameraIntro(
+      (progress - gameplayCameraIntroDollyRatio) / (1 - gameplayCameraIntroDollyRatio),
+    );
+    gameplayCameraIntroPosition.lerpVectors(
+      gameplayCameraIntroState.midPosition,
+      gameplayCameraIntroState.endPosition,
+      orbitProgress,
+    );
+    gameplayCameraIntroTarget.lerpVectors(
+      gameplayCameraIntroState.midTarget,
+      gameplayCameraIntroState.endTarget,
+      orbitProgress,
+    );
+  }
+
+  camera.position.copy(gameplayCameraIntroPosition);
+  controls.target.copy(gameplayCameraIntroTarget);
+  camera.lookAt(gameplayCameraIntroTarget);
+  cameraControlState.anchorDistance = camera.position.distanceTo(gameplayCameraIntroTarget);
+
+  if (progress >= 1) {
+    completeGameplayCameraIntro();
+  }
+}
+
+function easeGameplayCameraIntro(value) {
+  return THREE.MathUtils.smoothstep(THREE.MathUtils.clamp(value, 0, 1), 0, 1);
+}
+
+function completeGameplayCameraIntro() {
+  if (!gameplayCameraIntroState.active) {
+    return;
+  }
+
+  const shouldStartTimer = gameplayCameraIntroState.startRunTimerOnComplete;
+  const floorIndex = gameplayCameraIntroState.runTimerFloorIndex || 0;
+  gameplayCameraIntroState.active = false;
+  updateCameraAnchorFromCharacter();
+  applyAnchoredCameraFrame(1 / 60);
+
+  if (shouldStartTimer) {
+    startRunTimer(floorIndex);
+  }
+
+  showStageBanner("GO", { countdown: true, duration: gameplayCameraIntroGoBannerDuration });
+  setStatus("Carregado", "done");
+  window.setTimeout(() => hideStatus(), 550);
+  syncCrosshair();
+}
+
+function cancelGameplayCameraIntro() {
+  if (gameplayCameraIntroState.active) {
+    hideStageBanner();
+  }
+  gameplayCameraIntroState.active = false;
+}
+
+function isGameplayCameraIntroActive() {
+  return Boolean(gameplayCameraIntroState.active);
+}
+
+function isGameplayInputLocked() {
+  return isGameplayCameraIntroActive() || isGameplayCameraOutroActive();
+}
+
+function showRunTimerReadyState() {
+  if (!runTimerElement) {
+    return;
+  }
+
+  runTimerElement.hidden = false;
+  runTimerElement.textContent = formatRunTime(0);
+}
+
+function updateGameplayCameraIntroCountdown(progress) {
+  if (!stageBannerElement) {
+    return;
+  }
+
+  const secondsLeft = Math.max(
+    1,
+    Math.ceil((1 - THREE.MathUtils.clamp(progress, 0, 1)) * gameplayCameraIntroDuration),
+  );
+  const text = String(secondsLeft);
+  if (gameplayCameraIntroState.countdownText === text) {
+    return;
+  }
+
+  gameplayCameraIntroState.countdownText = text;
+  showStageBanner(text, { countdown: true });
+}
+
+function startGameplayCameraOutro() {
+  if (!characterModel || cameraControlState.freeCamera) {
+    advanceToNextFloor();
+    return;
+  }
+
+  clearPlayerMouseButtons();
+  playerControlState.pressedKeys.clear();
+  cameraControlState.pressedKeys.clear();
+  stopMobileJoystick();
+  stopMobileLook();
+  stopMobileFireLook();
+  updateCameraAnchorFromCharacter();
+  applyAnchoredCameraFrame(1 / 60);
+
+  gameplayCameraOutroState = createGameplayCameraOutroState();
+  gameplayCameraOutroState.active = true;
+  gameplayCameraOutroState.startPosition.copy(camera.position);
+  gameplayCameraOutroState.startTarget.copy(controls.target);
+
+  gameplayCameraOutroForward.set(
+    Math.sin(playerControlState.yawRadians),
+    0,
+    Math.cos(playerControlState.yawRadians),
+  );
+  if (gameplayCameraOutroForward.lengthSq() <= 0.0001) {
+    gameplayCameraOutroForward.set(0, 0, 1);
+  }
+  gameplayCameraOutroForward.normalize();
+
+  gameplayCameraOutroState.nearTarget.set(
+    characterModel.position.x,
+    gameplayCameraOutroTargetHeight,
+    characterModel.position.z,
+  );
+  gameplayCameraOutroState.endTarget.copy(gameplayCameraOutroState.nearTarget);
+  gameplayCameraOutroState.nearPosition
+    .copy(characterModel.position)
+    .addScaledVector(gameplayCameraOutroForward, gameplayCameraOutroNearDistance);
+  gameplayCameraOutroState.nearPosition.y = gameplayCameraOutroFaceHeight;
+  gameplayCameraOutroState.endPosition
+    .copy(characterModel.position)
+    .addScaledVector(gameplayCameraOutroForward, gameplayCameraOutroFarDistance);
+  gameplayCameraOutroState.endPosition.y = gameplayCameraOutroFaceHeight;
+
+  playBossClearCelebrationAnimation();
+  syncCrosshair();
+}
+
+function playBossClearCelebrationAnimation() {
+  const availableAnimations = bossClearCelebrationAnimationIds.filter((clipName) => animationActions.has(clipName));
+  if (!availableAnimations.length) {
+    playMovement(defaultMovementId, { restart: true });
+    return;
+  }
+
+  const clipName = availableAnimations[Math.floor(Math.random() * availableAnimations.length)];
+  playMovement(clipName, { restart: true });
+}
+
+function updateGameplayCameraOutro(delta) {
+  if (!gameplayCameraOutroState.active) {
+    return;
+  }
+
+  gameplayCameraOutroState.timer += Math.max(0, delta);
+  const progress = THREE.MathUtils.clamp(
+    gameplayCameraOutroState.timer / Math.max(gameplayCameraOutroState.duration, 0.001),
+    0,
+    1,
+  );
+
+  if (progress < gameplayCameraOutroPivotRatio) {
+    const pivotProgress = easeGameplayCameraIntro(progress / gameplayCameraOutroPivotRatio);
+    gameplayCameraOutroPosition.lerpVectors(
+      gameplayCameraOutroState.startPosition,
+      gameplayCameraOutroState.nearPosition,
+      pivotProgress,
+    );
+    gameplayCameraOutroTarget.lerpVectors(
+      gameplayCameraOutroState.startTarget,
+      gameplayCameraOutroState.nearTarget,
+      pivotProgress,
+    );
+  } else {
+    const pullbackProgress = easeGameplayCameraIntro(
+      (progress - gameplayCameraOutroPivotRatio) / (1 - gameplayCameraOutroPivotRatio),
+    );
+    gameplayCameraOutroPosition.lerpVectors(
+      gameplayCameraOutroState.nearPosition,
+      gameplayCameraOutroState.endPosition,
+      pullbackProgress,
+    );
+    gameplayCameraOutroTarget.lerpVectors(
+      gameplayCameraOutroState.nearTarget,
+      gameplayCameraOutroState.endTarget,
+      pullbackProgress,
+    );
+  }
+
+  camera.position.copy(gameplayCameraOutroPosition);
+  controls.target.copy(gameplayCameraOutroTarget);
+  camera.lookAt(gameplayCameraOutroTarget);
+  cameraControlState.anchorDistance = camera.position.distanceTo(gameplayCameraOutroTarget);
+
+  if (progress >= 1) {
+    completeGameplayCameraOutro();
+  }
+}
+
+function completeGameplayCameraOutro() {
+  if (!gameplayCameraOutroState.active) {
+    return;
+  }
+
+  gameplayCameraOutroState.active = false;
+  advanceToNextFloor();
+}
+
+function cancelGameplayCameraOutro() {
+  gameplayCameraOutroState.active = false;
+}
+
+function isGameplayCameraOutroActive() {
+  return Boolean(gameplayCameraOutroState.active);
 }
 
 function resolveAnchoredCameraViewTarget(desiredPosition, target, resolvedPosition) {
@@ -2323,6 +2721,11 @@ function handleCameraKeyDown(event) {
     return;
   }
 
+  if (isGameplayInputLocked()) {
+    event.preventDefault();
+    return;
+  }
+
   const key = event.key.toLowerCase();
   if (handleCombatWeaponHotkey(key)) {
     event.preventDefault();
@@ -2356,7 +2759,7 @@ function handleCameraKeyDown(event) {
 
 function handleCombatWeaponHotkey(key) {
   const config = combatWeaponConfigs.find((entry) => entry.slot === key);
-  if (!config || cameraControlState.freeCamera || playerControlState.dead) {
+  if (!config || isGameplayInputLocked() || cameraControlState.freeCamera || playerControlState.dead) {
     return false;
   }
 
@@ -2369,6 +2772,11 @@ function handleCombatWeaponHotkey(key) {
 }
 
 function switchCombatWeapon(weaponId) {
+  if (isGameplayInputLocked()) {
+    syncWeaponSlotHud();
+    return false;
+  }
+
   if (!isCombatWeaponUnlocked(weaponId)) {
     syncWeaponSlotHud();
     return false;
@@ -2411,6 +2819,10 @@ function handlePlayerPointerMove(event) {
     return;
   }
 
+  if (isGameplayInputLocked()) {
+    return;
+  }
+
   const isPointerLocked = document.pointerLockElement === renderer.domElement;
   if (!isPointerLocked && !isEventInsideRenderer(event)) {
     return;
@@ -2436,7 +2848,8 @@ function handlePlayerPointerDown(event) {
   renderer.domElement.focus();
 
   if (
-    cameraControlState.freeCamera
+    isGameplayInputLocked()
+    || cameraControlState.freeCamera
     || playerControlState.dead
     || corpseSearchState.active
     || (event.button !== 0 && event.button !== 2)
@@ -2477,7 +2890,15 @@ function handlePlayerMouseButtonChange(event) {
     return;
   }
 
-  if (isButtonDown && (cameraControlState.freeCamera || playerControlState.dead || corpseSearchState.active)) {
+  if (
+    isButtonDown
+    && (
+      isGameplayInputLocked()
+      || cameraControlState.freeCamera
+      || playerControlState.dead
+      || corpseSearchState.active
+    )
+  ) {
     return;
   }
 
@@ -2683,6 +3104,7 @@ function tryFirePlayerWeapon({ force = false } = {}) {
     !playerControlState.shooting
     || playerControlState.pendingShotTimer > 0
     || (!force && playerControlState.fireCooldown > 0)
+    || isGameplayInputLocked()
     || cameraControlState.freeCamera
     || corpseSearchState.active
   ) {
@@ -3699,6 +4121,7 @@ function canSearchCorpses() {
   return Boolean(
     characterModel
       && !playerControlState.dead
+      && !isGameplayInputLocked()
       && !cameraControlState.freeCamera
       && !corpseSearchState.active,
   );
@@ -4277,7 +4700,7 @@ function updatePlayerCameraFade() {
 }
 
 function getPlayerCameraTargetOpacity() {
-  if (cameraControlState.freeCamera) {
+  if (cameraControlState.freeCamera || isGameplayCameraIntroActive() || isGameplayCameraOutroActive()) {
     return 1;
   }
 
@@ -6055,6 +6478,7 @@ function createEnemyRuntime(model, mapEnemy, index) {
     state: "idle",
     stateTimer: 0,
     stateElapsed: 0,
+    startsInactiveFloor: !isBoss && Math.random() < enemyInitialInactiveFloorChance,
     health: enemyMaxHealth * (isBoss ? bossHealthMultiplier : 1),
     maxHealth: enemyMaxHealth * (isBoss ? bossHealthMultiplier : 1),
     halfHealthHandled: false,
@@ -6084,7 +6508,7 @@ function createEnemyRuntime(model, mapEnemy, index) {
   if (isBoss) {
     model.visible = false;
   } else {
-    startEnemySpawnAnimation(enemy);
+    startEnemyInitialAnimation(enemy);
     enemy.mixer.update(0.001);
   }
   return enemy;
@@ -6267,6 +6691,18 @@ function configureEnemyAction(action, clipName) {
     action.setLoop(THREE.LoopOnce, 1);
     action.clampWhenFinished = true;
   }
+}
+
+function startEnemyInitialAnimation(enemy) {
+  if (enemy.startsInactiveFloor && startEnemyInactiveFloorPose(enemy)) {
+    return;
+  }
+
+  startEnemySpawnAnimation(enemy);
+}
+
+function startEnemyInactiveFloorPose(enemy) {
+  return setEnemyLoopState(enemy, "inactiveFloor", "Skeletons_Inactive_Floor_Pose", { restart: true });
 }
 
 function startEnemySpawnAnimation(enemy) {
@@ -6612,6 +7048,10 @@ function updateStageFlow(delta) {
     return;
   }
 
+  if (isGameplayCameraOutroActive()) {
+    return;
+  }
+
   if (stageFlowState.clearActive) {
     stageFlowState.clearTimer -= delta;
     if (stageFlowState.clearTimer <= 0) {
@@ -6681,8 +7121,23 @@ function startStageClear() {
   }
 
   stageFlowState.clearActive = true;
-  stageFlowState.clearTimer = 2.2;
   showStageBanner("FLOOR CLEAR");
+  if (shouldPlayBossClearCameraOutro()) {
+    stageFlowState.clearTimer = 0;
+    startGameplayCameraOutro();
+    return;
+  }
+
+  stageFlowState.clearTimer = 2.2;
+}
+
+function shouldPlayBossClearCameraOutro() {
+  return activeEnemies.some((enemy) => (
+    enemy.type === "boss"
+      && enemy.spawned
+      && enemy.health <= 0
+      && (enemy.state === "dying" || enemy.state === "dead")
+  ));
 }
 
 function advanceToNextFloor() {
@@ -6759,7 +7214,9 @@ function updateEnemyState(enemy, delta) {
   }
 
   if (!characterModel || playerControlState.dead) {
-    setEnemyLoopState(enemy, "idle", "Skeletons_Idle");
+    if (enemy.state !== "inactiveFloor") {
+      setEnemyLoopState(enemy, "idle", "Skeletons_Idle");
+    }
     return;
   }
 
@@ -6771,6 +7228,13 @@ function updateEnemyState(enemy, delta) {
   }
 
   const canSeePlayer = canEnemySeePlayer(enemy, delta);
+  if (enemy.state === "inactiveFloor") {
+    if (canSeePlayer) {
+      wakeInactiveFloorEnemy(enemy);
+    }
+    return;
+  }
+
   if (canSeePlayer) {
     alertEnemy(enemy);
   } else if (!enemy.alerted) {
@@ -6797,12 +7261,43 @@ function updateEnemyState(enemy, delta) {
 }
 
 function alertEnemy(enemy) {
-  if (!enemy || enemy.alerted) {
+  if (!enemy) {
+    return;
+  }
+
+  if (enemy.state === "inactiveFloor") {
+    wakeInactiveFloorEnemy(enemy);
+    return;
+  }
+
+  if (enemy.alerted) {
     return;
   }
 
   enemy.alerted = true;
   enemy.pathRepathTimer = 0;
+}
+
+function wakeInactiveFloorEnemy(enemy) {
+  if (!enemy || enemy.state !== "inactiveFloor") {
+    return false;
+  }
+
+  enemy.alerted = true;
+  enemy.pathRepathTimer = 0;
+  const clipName = pickInactiveFloorWakeAnimation(enemy);
+  startEnemyTimedState(enemy, "awakening", clipName, 1.6);
+  return true;
+}
+
+function pickInactiveFloorWakeAnimation(enemy) {
+  const clips = ["Skeletons_Awaken_Floor", "Skeletons_Awaken_Floor_Long"]
+    .filter((clipName) => enemy.actions.has(clipName));
+  if (!clips.length) {
+    return enemy.actions.has("Skeletons_Idle") ? "Skeletons_Idle" : "Skeletons_Awaken_Floor";
+  }
+
+  return clips[Math.floor(Math.random() * clips.length)];
 }
 
 function updateEnemyHitFeedback(enemy, delta) {
@@ -6818,6 +7313,7 @@ function updateEnemyHitFeedback(enemy, delta) {
 
 function isEnemyTimedState(state) {
   return state === "spawning"
+    || state === "awakening"
     || state === "falling"
     || state === "downed"
     || state === "resurrecting"
@@ -6829,6 +7325,11 @@ function updateEnemyTimedState(enemy, delta) {
   enemy.stateTimer -= delta;
 
   if (enemy.state === "spawning" && enemy.stateTimer <= 0) {
+    setEnemyLoopState(enemy, "idle", "Skeletons_Idle", { restart: true });
+    return;
+  }
+
+  if (enemy.state === "awakening" && enemy.stateTimer <= 0) {
     setEnemyLoopState(enemy, "idle", "Skeletons_Idle", { restart: true });
     return;
   }
@@ -7006,6 +7507,10 @@ function damageEnemy(enemy, amount, { source = "generic" } = {}) {
 }
 
 function handleEnemyShotDamageThreshold(enemy, previousHealth) {
+  if (enemy.state === "inactiveFloor" || enemy.state === "awakening") {
+    return;
+  }
+
   const halfHealth = enemy.maxHealth * 0.5;
   if (enemy.halfHealthHandled || previousHealth <= halfHealth || enemy.health > halfHealth) {
     return;
@@ -9322,7 +9827,12 @@ function syncCrosshair() {
     return;
   }
 
-  const canShowCrosshair = Boolean(characterModel && !cameraControlState.freeCamera && !playerControlState.dead);
+  const canShowCrosshair = Boolean(
+    characterModel
+      && !isGameplayInputLocked()
+      && !cameraControlState.freeCamera
+      && !playerControlState.dead,
+  );
   const isVisible = canShowCrosshair && (runtimeIsMobile || playerControlState.aiming);
   crosshairElement.classList.toggle("is-visible", isVisible);
   crosshairElement.classList.toggle("is-firing", isVisible && playerControlState.shooting);

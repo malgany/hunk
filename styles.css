@@ -212,6 +212,16 @@ body.is-runtime-mobile .dev-layout {
   gap: 0;
 }
 
+.dev-layout:not(.has-dev-panel-open) {
+  grid-template-areas:
+    "tabs"
+    "game";
+}
+
+.dev-layout:not(.has-dev-panel-open) .dev-side-stack {
+  display: none;
+}
+
 body.is-runtime-static .dev-tabs,
 body.is-runtime-static .dev-side-stack,
 body.is-runtime-mobile .dev-tabs,
