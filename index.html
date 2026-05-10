@@ -24,7 +24,7 @@
             <span class="start-title__the">The</span>
             <span class="start-title__rank">Rank</span>
           </h1>
-          <button class="start-button" id="startButton" type="button">GAME START</button>
+          <button class="start-button" id="startButton" type="button">PRESS START</button>
         </div>
       </div>
     </div>
@@ -246,10 +246,24 @@
               <span class="health-hud__fill" data-health-bar-fill></span>
             </span>
           </div>
-          <div class="ammo-hud hud-panel" data-ammo-hud>
-            <span class="ammo-hud__icon" aria-hidden="true"></span>
-            <span class="ammo-hud__count" data-ammo-count>20</span>
-            <span class="ammo-hud__pickup" data-ammo-pickup-toast hidden>+10</span>
+          <div class="hud-right">
+            <div class="weapon-slot-hud" data-weapon-slot-hud>
+              <span class="weapon-slot is-unlocked is-active" data-combat-weapon-slot="pew">
+                <span class="weapon-slot__key">1</span>
+                <span class="weapon-slot__icon weapon-slot__icon--pistol" aria-hidden="true"></span>
+                <span class="weapon-slot__label">Pistol</span>
+              </span>
+              <span class="weapon-slot" data-combat-weapon-slot="shotgun">
+                <span class="weapon-slot__key">2</span>
+                <span class="weapon-slot__icon weapon-slot__icon--shotgun" aria-hidden="true"></span>
+                <span class="weapon-slot__label">Shotgun</span>
+              </span>
+            </div>
+            <div class="ammo-hud hud-panel is-weapon-pistol" data-ammo-hud>
+              <span class="ammo-hud__icon" aria-hidden="true"></span>
+              <span class="ammo-hud__count" data-ammo-count>20</span>
+              <span class="ammo-hud__pickup" data-ammo-pickup-toast hidden>+10</span>
+            </div>
           </div>
         </div>
         <div class="scene" data-scene></div>

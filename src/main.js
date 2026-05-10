@@ -14,6 +14,8 @@ const healthBarFillElement = document.querySelector("[data-health-bar-fill]");
 const ammoHudElement = document.querySelector("[data-ammo-hud]");
 const ammoCountElement = document.querySelector("[data-ammo-count]");
 const ammoPickupToastElement = document.querySelector("[data-ammo-pickup-toast]");
+const weaponSlotHudElement = document.querySelector("[data-weapon-slot-hud]");
+const weaponSlotElements = document.querySelectorAll("[data-combat-weapon-slot]");
 const damageFlashElement = document.querySelector("[data-damage-flash]");
 const stageBannerElement = document.querySelector("[data-stage-banner]");
 const mobileJoystickElement = document.querySelector("[data-mobile-joystick]");
@@ -225,15 +227,23 @@ const mobileJoystickRunThreshold = 0.92;
 const playerMaxHealth = 50;
 const playerMaxAmmo = 20;
 const playerStartingAmmo = 20;
+const shotgunStartingAmmo = 10;
 const playerFireInterval = 1;
 const projectileMaxDistance = 80;
 const projectileBodyDamage = 2;
 const projectileHeadDamage = 10;
 const ammoPickupAmount = 10;
-const ammoDropChance = 0.05;
-const ammoPickupRadius = 1.25;
+const ammoDropChance = 0.25;
+const ammoPickupCollectRadius = 1.35;
+const ammoPickupMagnetRadius = 2.15;
+const ammoPickupMagnetSpeed = 9;
 const ammoPickupBoxHeight = 0.22;
 const ammoPickupToastDuration = 0.9;
+const shotgunChestFloorIndex = 1;
+const shotgunChestTriggerRadius = 1.45;
+const shotgunPickupRadius = 1.15;
+const shotgunDropDuration = 0.72;
+const shotgunDropArcHeight = 0.9;
 const enemyHealthBarCanvasWidth = 128;
 const enemyHealthBarCanvasHeight = 24;
 const enemyHealthBarNormalWidth = 1.9;
@@ -313,10 +323,10 @@ const rogueDefaultSlots = {
 };
 const weaponOptions = [
   weapon("mac10", "MAC-10", "mac10.glb", { position: [0.01, 0.02, 0.005], scale: 3 }),
-  weapon("ak47", "AK-47", "ak47.glb", { position: [0.01, 0.02, 0.005], scale: 0.92 }),
-  weapon("ak47variant", "AK-47 Variant", "ak47variant.glb", { position: [0.01, 0.02, 0.005], scale: 0.92 }),
-  weapon("awp", "AWP", "awp.glb", { position: [0.01, 0.02, 0.005], scale: 0.62 }),
-  weapon("shotgun", "Shotgun", "shotgun.glb", { position: [0.01, 0.02, 0.005], scale: 1.05 }),
+  weapon("ak47", "AK-47", "ak47.glb", { position: [0.01, 0.02, 0.005], scale: 0.92, holdStyle: "twoHand" }),
+  weapon("ak47variant", "AK-47 Variant", "ak47variant.glb", { position: [0.01, 0.02, 0.005], scale: 0.92, holdStyle: "twoHand" }),
+  weapon("awp", "AWP", "awp.glb", { position: [0.01, 0.02, 0.005], scale: 0.62, holdStyle: "twoHand" }),
+  weapon("shotgun", "Shotgun", "shotgun.glb", { position: [0.015, 0.03, 0.008], scale: 3.5, holdStyle: "twoHand" }),
   weapon("pew", "Pew pistol", "pew.glb", { position: [0.095, 0.07, 0.04], scale: 4 }),
   weapon("nade", "Grenade", "nade_low.glb", { position: [0.01, 0.02, 0.005], scale: 3 }),
   weapon("nadevariant", "Grenade variant", "nadevariant_low.glb", { position: [0.01, 0.02, 0.005], scale: 2.6 }),
@@ -325,6 +335,28 @@ const weaponOptions = [
   weapon("incendiary", "Incendiary grenade", "incendiary_low.glb", { position: [0.01, 0.02, 0.005], scale: 2.7 }),
 ];
 const weaponById = new Map(weaponOptions.map((option) => [option.id, option]));
+const defaultCombatWeaponId = "pew";
+const shotgunCombatWeaponId = "shotgun";
+const combatWeaponConfigs = [
+  {
+    id: defaultCombatWeaponId,
+    slot: "1",
+    label: "Pistol",
+    maxAmmo: playerMaxAmmo,
+    startingAmmo: playerStartingAmmo,
+    ammoClass: "is-weapon-pistol",
+  },
+  {
+    id: shotgunCombatWeaponId,
+    slot: "2",
+    label: "Shotgun",
+    maxAmmo: playerMaxAmmo,
+    startingAmmo: 0,
+    grantAmmo: shotgunStartingAmmo,
+    ammoClass: "is-weapon-shotgun",
+  },
+];
+const combatWeaponConfigById = new Map(combatWeaponConfigs.map((config) => [config.id, config]));
 const animationFiles = [
   "general.glb",
   "movement-basic.glb",
@@ -552,6 +584,41 @@ const animationGroups = [
           upper: "Ranged_1H_Shooting",
         },
       }),
+      clip("Combo_Walking_A_Ranged_2H_Aiming", true, {
+        label: "Andar + mirar 2H",
+        combo: {
+          lower: "Walking_A",
+          upper: "Ranged_2H_Aiming",
+        },
+      }),
+      clip("Combo_Running_B_Ranged_2H_Aiming", true, {
+        label: "Correr B + mirar 2H",
+        combo: {
+          lower: "Running_B",
+          upper: "Ranged_2H_Aiming",
+        },
+      }),
+      clip("Combo_Walking_A_Ranged_2H_Shooting", true, {
+        label: "Andar + tiro 2H",
+        combo: {
+          lower: "Walking_A",
+          upper: "Ranged_2H_Shooting",
+        },
+      }),
+      clip("Combo_Running_A_Ranged_2H_Shooting", true, {
+        label: "Correr + tiro 2H",
+        combo: {
+          lower: "Running_A",
+          upper: "Ranged_2H_Shooting",
+        },
+      }),
+      clip("Combo_Running_B_Ranged_2H_Shooting", true, {
+        label: "Correr B + tiro 2H",
+        combo: {
+          lower: "Running_B",
+          upper: "Ranged_2H_Shooting",
+        },
+      }),
     ],
   },
 ];
@@ -636,6 +703,8 @@ let activeImpactEffects = [];
 let activeMuzzleFlashes = [];
 let activeDamageNumbers = [];
 let activeAmmoPickups = [];
+let activeLootChest = null;
+let activeWeaponDrop = null;
 let ammoPickupToastTimer = 0;
 let playerCameraOpacity = 1;
 const wallOcclusionRaycaster = new THREE.Raycaster();
@@ -668,6 +737,9 @@ const projectileHeadBox = new THREE.Box3();
 const damageNumberPosition = new THREE.Vector3();
 const damageNumberCameraOffset = new THREE.Vector3();
 const ammoPickupPosition = new THREE.Vector3();
+const lootChestPosition = new THREE.Vector3();
+const weaponDropStartPosition = new THREE.Vector3();
+const weaponDropEndPosition = new THREE.Vector3();
 const muzzleFlashPosition = new THREE.Vector3();
 const muzzleFlashWeaponCenter = new THREE.Vector3();
 const muzzleFlashWeaponSize = new THREE.Vector3();
@@ -741,13 +813,34 @@ const muzzleFlashMaterial = new THREE.MeshBasicMaterial({
   depthWrite: false,
 });
 const ammoPickupGeometry = new THREE.BoxGeometry(0.84, ammoPickupBoxHeight, 0.48);
-const ammoPickupMaterial = new THREE.MeshBasicMaterial({
+const ammoPickupPistolMaterial = new THREE.MeshBasicMaterial({
   color: 0xb92828,
+});
+const ammoPickupShotgunMaterial = new THREE.MeshBasicMaterial({
+  color: 0x2f8f4e,
 });
 const ammoPickupTopGeometry = new THREE.BoxGeometry(0.56, 0.025, 0.12);
 const ammoPickupTopMaterial = new THREE.MeshBasicMaterial({
   color: 0xc8c8c8,
 });
+const chestBaseGeometry = new THREE.BoxGeometry(1.9, 0.68, 1.06);
+const chestPanelGeometry = new THREE.BoxGeometry(1.72, 0.48, 0.07);
+const chestSidePanelGeometry = new THREE.BoxGeometry(0.07, 0.48, 0.86);
+const chestFootGeometry = new THREE.BoxGeometry(0.24, 0.12, 0.22);
+const chestLidCoreGeometry = new THREE.BoxGeometry(1.96, 0.24, 1.08);
+const chestLidTopGeometry = new THREE.BoxGeometry(1.9, 0.24, 0.52);
+const chestLidSlopeGeometry = new THREE.BoxGeometry(1.9, 0.18, 0.36);
+const chestTrimFrontGeometry = new THREE.BoxGeometry(2.02, 0.1, 0.1);
+const chestBandBodyGeometry = new THREE.BoxGeometry(0.16, 0.78, 1.12);
+const chestBandLidGeometry = new THREE.BoxGeometry(0.16, 0.34, 1.14);
+const chestLockGeometry = new THREE.BoxGeometry(0.32, 0.34, 0.1);
+const chestLockInsetGeometry = new THREE.BoxGeometry(0.13, 0.13, 0.115);
+const chestBaseMaterial = new THREE.MeshBasicMaterial({ color: 0x4f2a16 });
+const chestPanelMaterial = new THREE.MeshBasicMaterial({ color: 0x7b4725 });
+const chestLidMaterial = new THREE.MeshBasicMaterial({ color: 0x8c552c });
+const chestTrimMaterial = new THREE.MeshBasicMaterial({ color: 0xb88944 });
+const chestDarkMetalMaterial = new THREE.MeshBasicMaterial({ color: 0x28231c });
+const chestLockMaterial = new THREE.MeshBasicMaterial({ color: 0xe0b65b });
 const collisionDebugBoxGeometry = new THREE.BoxGeometry(1, 1, 1);
 const collisionDebugEdgesGeometry = new THREE.EdgesGeometry(collisionDebugBoxGeometry);
 
@@ -814,6 +907,7 @@ setupMapEditor();
 setupDevPanelTabs();
 setupCameraControls();
 setupMobileControls();
+setupWeaponSlotHud();
 setupAttachmentControls();
 renderColorPanel();
 setupColorControls();
@@ -900,6 +994,7 @@ renderer.setAnimationLoop((timestamp) => {
   updateEnemyCombatIndicators(delta);
   updateAmmoPickups(delta);
   updateAmmoPickupToast(delta);
+  updateFloorLoot(delta);
   updateStageFlow(delta);
   updateDeferredMapEditorSync(delta);
 
@@ -917,12 +1012,26 @@ renderer.setAnimationLoop((timestamp) => {
 });
 
 function setupStartScreen() {
+  enterStartScreenLandscape();
+
   if (!startScreen || !startButton) {
     startGame();
     return;
   }
 
   startButton.addEventListener("click", startGame, { once: true });
+}
+
+function enterStartScreenLandscape() {
+  if (!runtimeIsMobile) {
+    return;
+  }
+
+  try {
+    screen.orientation?.lock?.("landscape")?.catch?.(() => {});
+  } catch {
+    // Orientation lock before fullscreen is browser-dependent; CSS keeps the start screen landscape-shaped.
+  }
 }
 
 function startGame() {
@@ -941,6 +1050,7 @@ function startGame() {
   clearPlayerMouseButtons();
   syncPlayerHealthHud();
   syncPlayerAmmoHud();
+  syncWeaponSlotHud();
 
   if (startScreen) {
     startScreen.setAttribute("aria-hidden", "true");
@@ -982,6 +1092,7 @@ async function loadScene() {
     frameScene();
     setupAnimationMixer(characterModel, animationGltfs);
     renderAppliedEnemies();
+    setupFloorLootChest();
     movementSelect.disabled = false;
     weaponSelect.disabled = false;
     setAttachmentControlsEnabled(true);
@@ -989,6 +1100,8 @@ async function loadScene() {
     playMovement(defaultMovementId, { restart: true });
 
     setStatus("Carregado", "done");
+    syncWeaponSlotHud();
+    syncPlayerAmmoHud();
     syncCrosshair();
     window.setTimeout(() => hideStatus(), 550);
   } catch (error) {
@@ -1008,9 +1121,14 @@ function loadGltf(url) {
 async function equipWeapon(weaponId) {
   const nextWeapon = weaponById.get(weaponId) || weaponOptions[0];
   const requestId = ++equipRequestId;
+  if (combatWeaponConfigById.has(nextWeapon.id)) {
+    unlockCombatWeapon(nextWeapon.id);
+  }
   activeWeapon = nextWeapon;
   weaponSelect.value = nextWeapon.id;
   updateAttachmentControls();
+  syncWeaponSlotHud();
+  syncPlayerAmmoHud();
 
   if (!heldSlot) {
     setWeaponStatus(`Slot ${nextWeapon.slotName} nao encontrado`);
@@ -1032,6 +1150,8 @@ async function equipWeapon(weaponId) {
     applyWeaponTransform();
     heldSlot.add(currentHeldItem);
     setWeaponStatus(`Arma: ${nextWeapon.label}`);
+    syncWeaponSlotHud();
+    syncPlayerAmmoHud();
     return currentHeldItem;
   } catch (error) {
     console.error(error);
@@ -1448,6 +1568,19 @@ async function enterPreferredFullscreenAndOrientation() {
   }
 }
 
+function setupWeaponSlotHud() {
+  for (const element of weaponSlotElements) {
+    element.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const weaponId = element.dataset.combatWeaponSlot;
+      if (weaponId) {
+        switchCombatWeapon(weaponId);
+      }
+    });
+  }
+}
+
 function handleMobilePointerDown(event) {
   if (!runtimeIsMobile || playerControlState.dead || cameraControlState.freeCamera) {
     return;
@@ -1709,6 +1842,10 @@ function createPlayerControlState() {
     health: playerMaxHealth,
     maxAmmo: playerMaxAmmo,
     ammo: playerStartingAmmo,
+    ammoByWeapon: Object.fromEntries(
+      combatWeaponConfigs.map((config) => [config.id, config.startingAmmo]),
+    ),
+    unlockedWeapons: new Set([defaultCombatWeaponId]),
     dead: false,
     fireCooldown: 0,
     shotAnimationTimer: 0,
@@ -2023,6 +2160,11 @@ function handleCameraKeyDown(event) {
   }
 
   const key = event.key.toLowerCase();
+  if (handleCombatWeaponHotkey(key)) {
+    event.preventDefault();
+    return;
+  }
+
   const isMovementKey = ["w", "a", "s", "d", "shift"].includes(key);
   if (!isMovementKey) {
     return;
@@ -2038,6 +2180,30 @@ function handleCameraKeyDown(event) {
   }
 
   playerControlState.pressedKeys.add(key);
+}
+
+function handleCombatWeaponHotkey(key) {
+  const config = combatWeaponConfigs.find((entry) => entry.slot === key);
+  if (!config || cameraControlState.freeCamera || playerControlState.dead) {
+    return false;
+  }
+
+  if (!isCombatWeaponUnlocked(config.id)) {
+    return true;
+  }
+
+  switchCombatWeapon(config.id);
+  return true;
+}
+
+function switchCombatWeapon(weaponId) {
+  if (!isCombatWeaponUnlocked(weaponId)) {
+    syncWeaponSlotHud();
+    return false;
+  }
+
+  equipWeapon(weaponId);
+  return true;
 }
 
 function handleCameraKeyUp(event) {
@@ -2345,7 +2511,8 @@ function tryFirePlayerWeapon({ force = false } = {}) {
 
 function firePreparedPlayerWeapon() {
   const shotStartTime = performanceProfile.perfOverlayEnabled ? performance.now() : 0;
-  if (playerControlState.ammo <= 0) {
+  const weaponId = getActiveCombatWeaponId();
+  if (getCombatWeaponAmmo(weaponId) <= 0) {
     playerControlState.fireCooldown = playerFireInterval;
     playerControlState.shotAnimationTimer = playerShotAnimationDuration * 0.55;
     syncPlayerAmmoHud();
@@ -2356,7 +2523,7 @@ function firePreparedPlayerWeapon() {
     return false;
   }
 
-  playerControlState.ammo = Math.max(0, playerControlState.ammo - 1);
+  setCombatWeaponAmmo(weaponId, getCombatWeaponAmmo(weaponId) - 1);
   syncPlayerAmmoHud();
   recordProjectileShotPerf(shotStartTime);
   playerControlState.shotAnimationTimer = playerShotAnimationDuration;
@@ -2764,13 +2931,17 @@ function trySpawnAmmoDrop(enemy) {
     return;
   }
 
-  spawnAmmoPickup(enemy.model.position);
+  spawnAmmoPickup(enemy.model.position, getActiveCombatWeaponId());
 }
 
-function spawnAmmoPickup(position) {
+function spawnAmmoPickup(position, weaponId = getActiveCombatWeaponId()) {
   const group = new THREE.Group();
   group.name = "AmmoPickup";
-  const box = new THREE.Mesh(ammoPickupGeometry, ammoPickupMaterial);
+  const config = getCombatWeaponConfig(weaponId);
+  const pickupMaterial = config.id === shotgunCombatWeaponId
+    ? ammoPickupShotgunMaterial
+    : ammoPickupPistolMaterial;
+  const box = new THREE.Mesh(ammoPickupGeometry, pickupMaterial);
   const topMark = new THREE.Mesh(ammoPickupTopGeometry, ammoPickupTopMaterial);
 
   box.name = "AmmoPickupBox";
@@ -2790,6 +2961,7 @@ function spawnAmmoPickup(position) {
   scene.add(group);
   activeAmmoPickups.push({
     group,
+    weaponId: config.id,
     amount: ammoPickupAmount,
     age: 0,
   });
@@ -2807,12 +2979,23 @@ function updateAmmoPickups(delta) {
     pickup.group.position.y = (ammoPickupBoxHeight / 2) + Math.sin(pickup.age * 4.8) * 0.025;
 
     ammoPickupPosition.copy(pickup.group.position);
-    const distanceSq = (
+    let distanceSq = (
       ((characterModel.position.x - ammoPickupPosition.x) ** 2)
       + ((characterModel.position.z - ammoPickupPosition.z) ** 2)
     );
 
-    if (distanceSq > ammoPickupRadius * ammoPickupRadius) {
+    if (distanceSq <= ammoPickupMagnetRadius * ammoPickupMagnetRadius) {
+      const pull = 1 - Math.exp(-ammoPickupMagnetSpeed * delta);
+      pickup.group.position.x += (characterModel.position.x - pickup.group.position.x) * pull;
+      pickup.group.position.z += (characterModel.position.z - pickup.group.position.z) * pull;
+      ammoPickupPosition.copy(pickup.group.position);
+      distanceSq = (
+        ((characterModel.position.x - ammoPickupPosition.x) ** 2)
+        + ((characterModel.position.z - ammoPickupPosition.z) ** 2)
+      );
+    }
+
+    if (distanceSq > ammoPickupCollectRadius * ammoPickupCollectRadius) {
       continue;
     }
 
@@ -2822,10 +3005,7 @@ function updateAmmoPickups(delta) {
 }
 
 function collectAmmoPickup(pickup) {
-  playerControlState.ammo = Math.min(
-    playerControlState.maxAmmo,
-    playerControlState.ammo + pickup.amount,
-  );
+  addCombatWeaponAmmo(pickup.weaponId, pickup.amount);
   syncPlayerAmmoHud();
   showAmmoPickupToast(pickup.amount);
   pickup.group.removeFromParent();
@@ -2868,6 +3048,297 @@ function updateAmmoPickupToast(delta) {
       ammoPickupToastElement.hidden = true;
     }
   }, 220);
+}
+
+function setupFloorLootChest() {
+  clearFloorLootObjects();
+  if (
+    mapEditorState.activeFloorIndex !== shotgunChestFloorIndex
+    || isCombatWeaponUnlocked(shotgunCombatWeaponId)
+    || mapEditorState.appliedTiles.size === 0
+  ) {
+    return;
+  }
+
+  const placement = findShotgunChestPlacement(mapEditorState.appliedTiles);
+  if (!placement) {
+    return;
+  }
+
+  activeLootChest = createShotgunChest(placement);
+  scene.add(activeLootChest.group);
+}
+
+function clearFloorLootObjects() {
+  if (activeLootChest) {
+    activeLootChest.group.removeFromParent();
+    activeLootChest = null;
+  }
+
+  if (activeWeaponDrop) {
+    activeWeaponDrop.group.removeFromParent();
+    activeWeaponDrop = null;
+  }
+}
+
+function updateFloorLoot(delta) {
+  updateShotgunChest(delta);
+  updateShotgunWeaponDrop(delta);
+}
+
+function updateShotgunChest(delta) {
+  if (!activeLootChest || !characterModel) {
+    return;
+  }
+
+  if (!activeLootChest.opened) {
+    const distanceSq = (
+      ((characterModel.position.x - activeLootChest.group.position.x) ** 2)
+      + ((characterModel.position.z - activeLootChest.group.position.z) ** 2)
+    );
+    if (distanceSq <= shotgunChestTriggerRadius * shotgunChestTriggerRadius) {
+      openShotgunChest(activeLootChest);
+    }
+  }
+
+  const targetAngle = activeLootChest.opened ? -1.18 : 0;
+  activeLootChest.lidPivot.rotation.x = THREE.MathUtils.damp(
+    activeLootChest.lidPivot.rotation.x,
+    targetAngle,
+    9,
+    delta,
+  );
+}
+
+function openShotgunChest(chest) {
+  chest.opened = true;
+  if (!chest.dropRequested) {
+    chest.dropRequested = true;
+    spawnShotgunWeaponDrop(chest);
+  }
+}
+
+async function spawnShotgunWeaponDrop(chest) {
+  try {
+    const shotgunConfig = weaponById.get(shotgunCombatWeaponId);
+    const source = await loadWeapon(shotgunConfig);
+    if (!activeLootChest || activeLootChest !== chest || activeWeaponDrop || isCombatWeaponUnlocked(shotgunCombatWeaponId)) {
+      return;
+    }
+
+    const group = new THREE.Group();
+    group.name = "ShotgunPickup";
+    const model = source.clone(true);
+    model.name = "ShotgunPickupModel";
+    prepareHeldItem(model);
+    fitWeaponPickupModel(model, 2.35);
+    group.add(model);
+
+    weaponDropStartPosition.copy(chest.group.position);
+    weaponDropStartPosition.y = 0.82;
+    weaponDropStartPosition.addScaledVector(chest.facing, 0.18);
+    weaponDropEndPosition.copy(chest.group.position);
+    weaponDropEndPosition.y = 0.11;
+    weaponDropEndPosition.addScaledVector(chest.facing, 1.12);
+
+    group.position.copy(weaponDropStartPosition);
+    group.rotation.y = yawFromDirection(chest.facing) + Math.PI / 2;
+    scene.add(group);
+
+    activeWeaponDrop = {
+      group,
+      weaponId: shotgunCombatWeaponId,
+      age: 0,
+      duration: shotgunDropDuration,
+      start: weaponDropStartPosition.clone(),
+      end: weaponDropEndPosition.clone(),
+      collectable: false,
+    };
+  } catch (error) {
+    console.error("Falha ao criar drop da shotgun.", error);
+  }
+}
+
+function updateShotgunWeaponDrop(delta) {
+  if (!activeWeaponDrop || !characterModel) {
+    return;
+  }
+
+  activeWeaponDrop.age += delta;
+  const progress = THREE.MathUtils.clamp(activeWeaponDrop.age / activeWeaponDrop.duration, 0, 1);
+  activeWeaponDrop.group.position.lerpVectors(activeWeaponDrop.start, activeWeaponDrop.end, progress);
+  activeWeaponDrop.group.position.y += Math.sin(progress * Math.PI) * shotgunDropArcHeight;
+  activeWeaponDrop.group.rotation.y += delta * 2.8;
+  activeWeaponDrop.collectable = progress >= 0.45;
+
+  if (!activeWeaponDrop.collectable) {
+    return;
+  }
+
+  const distanceSq = (
+    ((characterModel.position.x - activeWeaponDrop.group.position.x) ** 2)
+    + ((characterModel.position.z - activeWeaponDrop.group.position.z) ** 2)
+  );
+  if (distanceSq > shotgunPickupRadius * shotgunPickupRadius) {
+    return;
+  }
+
+  collectShotgunWeaponDrop();
+}
+
+function collectShotgunWeaponDrop() {
+  if (!activeWeaponDrop) {
+    return;
+  }
+
+  activeWeaponDrop.group.removeFromParent();
+  activeWeaponDrop = null;
+  unlockCombatWeapon(shotgunCombatWeaponId, { ammo: getCombatWeaponConfig(shotgunCombatWeaponId).grantAmmo });
+  equipWeapon(shotgunCombatWeaponId);
+  setStatus("Shotgun equipada", "done");
+  window.setTimeout(() => hideStatus(), 700);
+}
+
+function createShotgunChest(placement) {
+  const group = new THREE.Group();
+  group.name = "ShotgunChest";
+  const lidPivot = new THREE.Group();
+  lidPivot.name = "ShotgunChestLidPivot";
+
+  const addPart = (parent, name, geometry, material, position, rotation = null) => {
+    const part = new THREE.Mesh(geometry, material);
+    part.name = name;
+    part.position.fromArray(position);
+    if (rotation) {
+      part.rotation.fromArray(rotation);
+    }
+    parent.add(part);
+    return part;
+  };
+
+  addPart(group, "ShotgunChestBase", chestBaseGeometry, chestBaseMaterial, [0, 0.34, 0]);
+  addPart(group, "ShotgunChestFrontPanel", chestPanelGeometry, chestPanelMaterial, [0, 0.38, 0.565]);
+  addPart(group, "ShotgunChestBackPanel", chestPanelGeometry, chestPanelMaterial, [0, 0.38, -0.565]);
+  addPart(group, "ShotgunChestLeftPanel", chestSidePanelGeometry, chestPanelMaterial, [-0.985, 0.38, 0]);
+  addPart(group, "ShotgunChestRightPanel", chestSidePanelGeometry, chestPanelMaterial, [0.985, 0.38, 0]);
+  addPart(group, "ShotgunChestFrontTrim", chestTrimFrontGeometry, chestTrimMaterial, [0, 0.72, 0.59]);
+  addPart(group, "ShotgunChestBackTrim", chestTrimFrontGeometry, chestTrimMaterial, [0, 0.72, -0.59]);
+  addPart(group, "ShotgunChestBandLeft", chestBandBodyGeometry, chestDarkMetalMaterial, [-0.58, 0.39, 0]);
+  addPart(group, "ShotgunChestBandRight", chestBandBodyGeometry, chestDarkMetalMaterial, [0.58, 0.39, 0]);
+  addPart(group, "ShotgunChestFootFrontLeft", chestFootGeometry, chestDarkMetalMaterial, [-0.72, 0.06, 0.42]);
+  addPart(group, "ShotgunChestFootFrontRight", chestFootGeometry, chestDarkMetalMaterial, [0.72, 0.06, 0.42]);
+  addPart(group, "ShotgunChestFootBackLeft", chestFootGeometry, chestDarkMetalMaterial, [-0.72, 0.06, -0.42]);
+  addPart(group, "ShotgunChestFootBackRight", chestFootGeometry, chestDarkMetalMaterial, [0.72, 0.06, -0.42]);
+
+  lidPivot.position.set(0, 0.72, -0.56);
+  addPart(lidPivot, "ShotgunChestLidCore", chestLidCoreGeometry, chestLidMaterial, [0, 0.08, 0.56]);
+  addPart(lidPivot, "ShotgunChestLidTop", chestLidTopGeometry, chestLidMaterial, [0, 0.31, 0.56]);
+  addPart(lidPivot, "ShotgunChestLidBackSlope", chestLidSlopeGeometry, chestLidMaterial, [0, 0.22, 0.27], [0.55, 0, 0]);
+  addPart(lidPivot, "ShotgunChestLidFrontSlope", chestLidSlopeGeometry, chestLidMaterial, [0, 0.22, 0.85], [-0.55, 0, 0]);
+  addPart(lidPivot, "ShotgunChestLidBandLeft", chestBandLidGeometry, chestDarkMetalMaterial, [-0.58, 0.21, 0.56]);
+  addPart(lidPivot, "ShotgunChestLidBandRight", chestBandLidGeometry, chestDarkMetalMaterial, [0.58, 0.21, 0.56]);
+  addPart(lidPivot, "ShotgunChestLock", chestLockGeometry, chestLockMaterial, [0, -0.05, 1.12]);
+  addPart(lidPivot, "ShotgunChestLockInset", chestLockInsetGeometry, chestDarkMetalMaterial, [0, -0.04, 1.178]);
+  group.add(lidPivot);
+
+  group.position.copy(placement.position);
+  group.rotation.y = yawFromDirection(placement.facing);
+  group.traverse((node) => {
+    if (node.isMesh) {
+      node.castShadow = false;
+      node.receiveShadow = false;
+      node.frustumCulled = true;
+    }
+  });
+
+  return {
+    group,
+    lidPivot,
+    facing: placement.facing.clone(),
+    opened: false,
+    dropRequested: false,
+  };
+}
+
+function findShotgunChestPlacement(activeTiles) {
+  const candidates = [];
+  const blockedTiles = createShotgunChestBlockedTiles();
+  const wallOptions = [
+    { wall: { x: 0, z: -1 }, facing: new THREE.Vector3(0, 0, 1) },
+    { wall: { x: 1, z: 0 }, facing: new THREE.Vector3(-1, 0, 0) },
+    { wall: { x: 0, z: 1 }, facing: new THREE.Vector3(0, 0, -1) },
+    { wall: { x: -1, z: 0 }, facing: new THREE.Vector3(1, 0, 0) },
+  ];
+  const playerTile = {
+    x: Math.floor(mapEditorState.appliedPlayerPosition.x),
+    z: Math.floor(mapEditorState.appliedPlayerPosition.z),
+  };
+
+  for (const key of activeTiles) {
+    const tile = parseTileKey(key);
+    if (blockedTiles.has(key)) {
+      continue;
+    }
+
+    for (const option of wallOptions) {
+      const wallKey = tileKey(tile.x + option.wall.x, tile.z + option.wall.z);
+      if (activeTiles.has(wallKey)) {
+        continue;
+      }
+
+      const frontTile = {
+        x: tile.x + Math.sign(option.facing.x),
+        z: tile.z + Math.sign(option.facing.z),
+      };
+      const frontKey = tileKey(frontTile.x, frontTile.z);
+      const hasFrontSpace = activeTiles.has(frontKey);
+      if (hasFrontSpace && blockedTiles.has(frontKey)) {
+        continue;
+      }
+
+      const playerDistance = Math.abs(tile.x - playerTile.x) + Math.abs(tile.z - playerTile.z);
+      const score = (hasFrontSpace ? 100 : 0) + playerDistance;
+      const worldCenter = mapTileCenterToWorld(tile);
+      const position = lootChestPosition.set(worldCenter.x, 0, worldCenter.z)
+        .addScaledVector(option.facing, -platformTileSize * 0.3)
+        .clone();
+      candidates.push({
+        position,
+        facing: option.facing.clone(),
+        score,
+      });
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0] || null;
+}
+
+function createShotgunChestBlockedTiles() {
+  const blockedTiles = new Set();
+  for (const enemy of mapEditorState.appliedEnemies) {
+    blockedTiles.add(tileKeyFromMapPoint(enemy));
+  }
+
+  if (mapEditorState.appliedPlayerPosition) {
+    blockedTiles.add(tileKeyFromMapPoint(mapEditorState.appliedPlayerPosition));
+  }
+
+  return blockedTiles;
+}
+
+function fitWeaponPickupModel(model, targetSize) {
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const maxSize = Math.max(size.x, size.y, size.z, 0.001);
+  model.scale.multiplyScalar(targetSize / maxSize);
+  model.rotation.set(0, 0, THREE.MathUtils.degToRad(-16));
+
+  const fittedBox = new THREE.Box3().setFromObject(model);
+  const center = fittedBox.getCenter(new THREE.Vector3());
+  model.position.x -= center.x;
+  model.position.z -= center.z;
+  model.position.y -= fittedBox.min.y;
 }
 
 function getPlayerMovementVector() {
@@ -3033,26 +3504,55 @@ function updatePlayerAnimation(isMoving, isRunning, isShooting, isAiming) {
     return;
   }
 
+  const motion = getActiveWeaponAnimationMotion();
   let movementId = defaultMovementId;
   if (isMoving && isShooting && isRunning) {
-    movementId = "Combo_Running_B_Ranged_1H_Shooting";
+    movementId = motion.runningShooting;
   } else if (isMoving && isShooting) {
-    movementId = "Combo_Walking_A_Ranged_1H_Shooting";
+    movementId = motion.walkingShooting;
   } else if (isMoving && isAiming && isRunning) {
-    movementId = "Combo_Running_B_Ranged_1H_Aiming";
+    movementId = motion.runningAiming;
   } else if (isMoving && isAiming) {
-    movementId = "Combo_Walking_A_Ranged_1H_Aiming";
+    movementId = motion.walkingAiming;
   } else if (isMoving && isRunning) {
-    movementId = "Running_B";
+    movementId = motion.running;
   } else if (isMoving) {
-    movementId = "Walking_A";
+    movementId = motion.walking;
   } else if (isShooting) {
-    movementId = "Ranged_1H_Shooting";
-  } else if (isAiming) {
-    movementId = "Ranged_1H_Aiming";
+    movementId = motion.shooting;
+  } else if (isAiming || motion.holdWhenIdle) {
+    movementId = motion.aiming;
   }
 
   playMovement(movementId);
+}
+
+function getActiveWeaponAnimationMotion() {
+  if (activeWeapon?.holdStyle === "twoHand") {
+    return {
+      walking: "Combo_Walking_A_Ranged_2H_Aiming",
+      running: "Running_HoldingRifle",
+      walkingAiming: "Combo_Walking_A_Ranged_2H_Aiming",
+      runningAiming: "Combo_Running_B_Ranged_2H_Aiming",
+      walkingShooting: "Combo_Walking_A_Ranged_2H_Shooting",
+      runningShooting: "Combo_Running_B_Ranged_2H_Shooting",
+      aiming: "Ranged_2H_Aiming",
+      shooting: "Ranged_2H_Shooting",
+      holdWhenIdle: true,
+    };
+  }
+
+  return {
+    walking: "Walking_A",
+    running: "Running_B",
+    walkingAiming: "Combo_Walking_A_Ranged_1H_Aiming",
+    runningAiming: "Combo_Running_B_Ranged_1H_Aiming",
+    walkingShooting: "Combo_Walking_A_Ranged_1H_Shooting",
+    runningShooting: "Combo_Running_B_Ranged_1H_Shooting",
+    aiming: "Ranged_1H_Aiming",
+    shooting: "Ranged_1H_Shooting",
+    holdWhenIdle: false,
+  };
 }
 
 function updateCameraAnchorFromCharacter() {
@@ -3569,6 +4069,7 @@ function loadMapFloorIntoEditor(floor, floorIndex) {
   rebuildPlatformFromAppliedMap();
   positionCharacterOnMap(mapEditorState.appliedPlayerPosition, mapEditorState.appliedPlayerDirection);
   renderAppliedEnemies();
+  setupFloorLootChest();
   frameScene();
   updateMapHud();
   renderMapEditor();
@@ -4620,6 +5121,7 @@ async function applyMapEditorState() {
   rebuildPlatformFromAppliedMap();
   positionCharacterOnMap(mapEditorState.appliedPlayerPosition, mapEditorState.appliedPlayerDirection);
   renderAppliedEnemies();
+  setupFloorLootChest();
   frameScene();
   updateMapHud();
   renderMapEditor();
@@ -5270,10 +5772,12 @@ function updateStageFlow(delta) {
 
   if (stageFlowState.bossCountdownActive) {
     stageFlowState.bossCountdown = Math.max(0, stageFlowState.bossCountdown - delta);
-    showStageBanner(String(Math.max(1, Math.ceil(stageFlowState.bossCountdown))), { countdown: true });
     if (stageFlowState.bossCountdown <= 0) {
       stageFlowState.bossCountdownActive = false;
+      showStageBanner("0", { countdown: true, duration: 0.35 });
       spawnPendingBosses();
+    } else {
+      showStageBanner(String(Math.ceil(stageFlowState.bossCountdown)), { countdown: true });
     }
     return;
   }
@@ -7636,10 +8140,12 @@ function syncPlayerAmmoHud() {
     return;
   }
 
+  const weaponId = getActiveCombatWeaponId();
+  const config = getCombatWeaponConfig(weaponId);
   const ammo = THREE.MathUtils.clamp(
-    Math.floor(playerControlState.ammo),
+    Math.floor(getCombatWeaponAmmo(weaponId)),
     0,
-    playerControlState.maxAmmo,
+    config.maxAmmo,
   );
   playerControlState.ammo = ammo;
   if (ammoCountElement) {
@@ -7647,8 +8153,79 @@ function syncPlayerAmmoHud() {
   }
   if (ammoHudElement) {
     ammoHudElement.classList.toggle("is-empty", ammo <= 0);
+    ammoHudElement.classList.toggle("is-weapon-pistol", weaponId === defaultCombatWeaponId);
+    ammoHudElement.classList.toggle("is-weapon-shotgun", weaponId === shotgunCombatWeaponId);
     ammoHudElement.setAttribute("aria-label", `Municao ${ammo}`);
   }
+}
+
+function syncWeaponSlotHud() {
+  if (!weaponSlotHudElement && weaponSlotElements.length === 0) {
+    return;
+  }
+
+  const activeWeaponId = getActiveCombatWeaponId();
+  for (const element of weaponSlotElements) {
+    const weaponId = element.dataset.combatWeaponSlot;
+    const unlocked = isCombatWeaponUnlocked(weaponId);
+    element.classList.toggle("is-unlocked", unlocked);
+    element.classList.toggle("is-active", weaponId === activeWeaponId);
+    element.setAttribute("aria-disabled", unlocked ? "false" : "true");
+  }
+}
+
+function getCombatWeaponConfig(weaponId = getActiveCombatWeaponId()) {
+  return combatWeaponConfigById.get(weaponId) || combatWeaponConfigById.get(defaultCombatWeaponId);
+}
+
+function getActiveCombatWeaponId() {
+  return combatWeaponConfigById.has(activeWeapon?.id)
+    ? activeWeapon.id
+    : defaultCombatWeaponId;
+}
+
+function isCombatWeaponUnlocked(weaponId) {
+  return Boolean(playerControlState.unlockedWeapons?.has?.(weaponId));
+}
+
+function unlockCombatWeapon(weaponId, { ammo = null } = {}) {
+  const config = combatWeaponConfigById.get(weaponId);
+  if (!config) {
+    return false;
+  }
+
+  playerControlState.unlockedWeapons.add(weaponId);
+  if (ammo !== null) {
+    setCombatWeaponAmmo(weaponId, Math.max(getCombatWeaponAmmo(weaponId), ammo));
+  }
+  syncWeaponSlotHud();
+  syncPlayerAmmoHud();
+  return true;
+}
+
+function getCombatWeaponAmmo(weaponId) {
+  const config = getCombatWeaponConfig(weaponId);
+  return THREE.MathUtils.clamp(
+    Math.floor(playerControlState.ammoByWeapon?.[config.id] ?? config.startingAmmo),
+    0,
+    config.maxAmmo,
+  );
+}
+
+function setCombatWeaponAmmo(weaponId, amount) {
+  const config = getCombatWeaponConfig(weaponId);
+  playerControlState.ammoByWeapon[config.id] = THREE.MathUtils.clamp(
+    Math.floor(amount),
+    0,
+    config.maxAmmo,
+  );
+  if (config.id === getActiveCombatWeaponId()) {
+    playerControlState.ammo = playerControlState.ammoByWeapon[config.id];
+  }
+}
+
+function addCombatWeaponAmmo(weaponId, amount) {
+  setCombatWeaponAmmo(weaponId, getCombatWeaponAmmo(weaponId) + amount);
 }
 
 function triggerPlayerDamageFeedback() {
