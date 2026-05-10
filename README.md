@@ -7,11 +7,11 @@ Jogo/prototipo local em Three.js para testar o personagem `assets/HUNK.glb`, ini
 - Tela inicial com orientacao landscape no mobile e botao `PRESS START`.
 - Editor de mapa por tiles com multiplos andares, player spawn, esqueletos e chefe.
 - Geracao automatica de mapa e salvamento local do mapa em `src/map-config.js`.
-- Combate em terceira pessoa com vida do player, barra de vida dos inimigos, dano flutuante e headshot.
+- Combate em terceira pessoa com vida do player, dano flutuante e headshot.
 - Pistola e shotgun com HUD separado, troca por slot `1` e `2` no desktop e botoes na borda inferior no mobile.
 - Bau no andar 2 que libera a shotgun.
-- Drops de municao por inimigos, com caixa vermelha para pistola e verde para shotgun.
-- Vasculhar corpos quando todas as municoes das armas desbloqueadas acabam.
+- Drops de municao por inimigos, com caixa vermelha para pistola e verde para shotgun; o tipo sorteia entre armas desbloqueadas.
+- Vasculhar corpos de esqueletos mortos ao se aproximar.
 - Timer de run no topo da tela, resumo final e recordes em `localStorage`.
 
 ## Armas e municao
@@ -35,7 +35,7 @@ Observacao: a shotgun nasce com 10 balas quando e pega no bau, mas o limite maxi
 
 ### Vasculhar corpos
 
-- So aparece quando todas as municoes das armas desbloqueadas estao em `0`.
+- Aparece quando o personagem esta perto de um esqueleto morto ainda nao vasculhado.
 - Desktop: aproxime em ate cerca de 1 tile de um esqueleto morto e pressione `E`.
 - Mobile: aproxime em ate cerca de 1 tile de um esqueleto morto e toque em `Vasculhar`.
 - A busca dura 6 segundos e usa a animacao `PickUp`.

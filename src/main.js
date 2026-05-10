@@ -269,12 +269,6 @@ const shotgunPickupRadius = 1.15;
 const shotgunDropDuration = 0.72;
 const shotgunDropArcHeight = 0.9;
 const runRecordsStorageKey = "theRank.records.v1";
-const enemyHealthBarCanvasWidth = 128;
-const enemyHealthBarCanvasHeight = 24;
-const enemyHealthBarNormalWidth = 1.9;
-const enemyHealthBarBossWidth = 3.2;
-const enemyHealthBarHeight = 0.26;
-const enemyHealthBarVerticalPadding = 0.38;
 const damageNumberCanvasWidth = 128;
 const damageNumberCanvasHeight = 80;
 const damageNumberDuration = 0.78;
@@ -294,6 +288,8 @@ const bossAttackDamageMultiplier = 3;
 const bossSpawnCountdownSeconds = 10;
 const enemyVisionDistance = platformTileSize * 7.2;
 const enemyWalkSpeed = 1.35;
+const enemyPathRepathInterval = 0.45;
+const enemyPathWaypointRadius = 0.32;
 const enemyCollisionRadius = 0.75;
 const enemyAttackRange = 1.65;
 const enemyAttackDamage = 6;
@@ -3414,7 +3410,21 @@ function trySpawnAmmoDrop(enemy) {
     return;
   }
 
-  spawnAmmoPickup(enemy.model.position, getActiveCombatWeaponId());
+  const weaponId = pickAmmoDropWeaponId();
+  if (!weaponId) {
+    return;
+  }
+
+  spawnAmmoPickup(enemy.model.position, weaponId);
+}
+
+function pickAmmoDropWeaponId() {
+  const weaponIds = getUnlockedCombatWeaponIds();
+  if (!weaponIds.length) {
+    return null;
+  }
+
+  return weaponIds[Math.floor(Math.random() * weaponIds.length)];
 }
 
 function spawnAmmoPickup(position, weaponId = getActiveCombatWeaponId()) {
@@ -3690,14 +3700,8 @@ function canSearchCorpses() {
     characterModel
       && !playerControlState.dead
       && !cameraControlState.freeCamera
-      && !corpseSearchState.active
-      && areAllUnlockedWeaponsEmpty(),
+      && !corpseSearchState.active,
   );
-}
-
-function areAllUnlockedWeaponsEmpty() {
-  const weaponIds = getUnlockedCombatWeaponIds();
-  return weaponIds.length > 0 && weaponIds.every((weaponId) => getCombatWeaponAmmo(weaponId) <= 0);
 }
 
 function getUnlockedCombatWeaponIds() {
@@ -3723,10 +3727,6 @@ function removeSearchedCorpse(enemy) {
   enemy.searchInProgress = false;
   enemy.model.visible = false;
   enemy.model.removeFromParent();
-  if (enemy.healthBar?.sprite) {
-    enemy.healthBar.sprite.visible = false;
-    enemy.healthBar.sprite.removeFromParent();
-  }
 }
 
 function setupFloorLootChest() {
@@ -6013,7 +6013,6 @@ function renderAppliedEnemies() {
     enemyModel.name = enemyType === "boss" ? "SkeletonBoss" : "Skeleton";
     prepareStaticModel(enemyModel);
     const enemyRuntime = createEnemyRuntime(enemyModel, enemy, index);
-    createEnemyHealthBar(enemyRuntime);
     enemyModel.traverse((node) => {
       node.userData.enemyRuntime = enemyRuntime;
     });
@@ -6072,6 +6071,11 @@ function createEnemyRuntime(model, mapEnemy, index) {
     mixerUpdateTimer: Math.random() * performanceProfile.enemyFarMixerInterval,
     lineOfSightTimer: Math.random() * performanceProfile.enemyLosInterval,
     lineOfSightResult: false,
+    alerted: false,
+    path: [],
+    pathStartKey: null,
+    pathTargetKey: null,
+    pathRepathTimer: 0,
     active: !isBoss,
     spawned: !isBoss,
   };
@@ -6086,122 +6090,8 @@ function createEnemyRuntime(model, mapEnemy, index) {
   return enemy;
 }
 
-function createEnemyHealthBar(enemy) {
-  if (!enemyGroup) {
-    return;
-  }
-
-  const canvas = document.createElement("canvas");
-  canvas.width = enemyHealthBarCanvasWidth;
-  canvas.height = enemyHealthBarCanvasHeight;
-  const context = canvas.getContext("2d");
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.generateMipmaps = false;
-  texture.minFilter = THREE.LinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-
-  const material = new THREE.SpriteMaterial({
-    map: texture,
-    transparent: true,
-    depthWrite: false,
-    depthTest: true,
-  });
-  const sprite = new THREE.Sprite(material);
-  sprite.name = enemy.type === "boss" ? "BossHealthBar" : "EnemyHealthBar";
-  sprite.frustumCulled = false;
-  sprite.renderOrder = 30;
-  sprite.visible = false;
-
-  enemy.healthBar = {
-    sprite,
-    canvas,
-    context,
-    texture,
-    material,
-    lastHealthRatio: -1,
-  };
-
-  enemyGroup.add(sprite);
-  updateEnemyHealthBar(enemy);
-}
-
 function updateEnemyCombatIndicators(delta) {
-  updateEnemyHealthBars();
   updateEnemyDamageNumbers(delta);
-}
-
-function updateEnemyHealthBars() {
-  for (const enemy of activeEnemies) {
-    updateEnemyHealthBar(enemy);
-  }
-}
-
-function updateEnemyHealthBar(enemy) {
-  const bar = enemy.healthBar;
-  if (!bar) {
-    return;
-  }
-
-  const visible = Boolean(
-    enemy.model.visible
-      && enemy.health > 0
-      && enemy.state !== "dead"
-      && enemy.state !== "dying",
-  );
-  bar.sprite.visible = visible;
-  if (!visible) {
-    return;
-  }
-
-  const healthRatio = THREE.MathUtils.clamp(enemy.health / Math.max(enemy.maxHealth, 1), 0, 1);
-  const roundedRatio = Math.round(healthRatio * 100) / 100;
-  if (roundedRatio !== bar.lastHealthRatio) {
-    drawEnemyHealthBar(bar, healthRatio);
-    bar.lastHealthRatio = roundedRatio;
-  }
-
-  const width = enemy.type === "boss" ? enemyHealthBarBossWidth : enemyHealthBarNormalWidth;
-  bar.sprite.scale.set(width, enemyHealthBarHeight, 1);
-  bar.sprite.position.set(
-    enemy.model.position.x,
-    enemy.model.position.y + enemy.hitbox.maxY + enemyHealthBarVerticalPadding,
-    enemy.model.position.z,
-  );
-}
-
-function drawEnemyHealthBar(bar, healthRatio) {
-  const { context } = bar;
-  const width = enemyHealthBarCanvasWidth;
-  const height = enemyHealthBarCanvasHeight;
-  const trackX = 8;
-  const trackY = 7;
-  const trackWidth = width - trackX * 2;
-  const trackHeight = height - trackY * 2;
-
-  context.clearRect(0, 0, width, height);
-  context.fillStyle = "rgba(16, 3, 3, 0.82)";
-  context.fillRect(0, 0, width, height);
-  context.fillStyle = "rgba(70, 8, 8, 0.9)";
-  context.fillRect(trackX, trackY, trackWidth, trackHeight);
-  context.fillStyle = getEnemyHealthBarFillColor(healthRatio);
-  context.fillRect(trackX, trackY, Math.max(1, trackWidth * healthRatio), trackHeight);
-  context.strokeStyle = "rgba(255, 236, 173, 0.86)";
-  context.lineWidth = 2;
-  context.strokeRect(trackX + 1, trackY + 1, trackWidth - 2, trackHeight - 2);
-  bar.texture.needsUpdate = true;
-}
-
-function getEnemyHealthBarFillColor(healthRatio) {
-  if (healthRatio <= 0.25) {
-    return "#ff3434";
-  }
-
-  if (healthRatio <= 0.5) {
-    return "#ffd84d";
-  }
-
-  return "#d92f2f";
 }
 
 function spawnEnemyDamageNumber(enemy, amount, { headshot = false, point = null } = {}) {
@@ -6318,26 +6208,10 @@ function disposeDamageNumber(number) {
 }
 
 function clearEnemyCombatIndicators() {
-  for (const enemy of activeEnemies) {
-    disposeEnemyHealthBar(enemy);
-  }
-
   for (const number of activeDamageNumbers) {
     disposeDamageNumber(number);
   }
   activeDamageNumbers = [];
-}
-
-function disposeEnemyHealthBar(enemy) {
-  const bar = enemy.healthBar;
-  if (!bar) {
-    return;
-  }
-
-  bar.sprite.removeFromParent();
-  bar.texture.dispose();
-  bar.material.dispose();
-  enemy.healthBar = null;
 }
 
 function createEnemyHitboxMetrics(model) {
@@ -6897,25 +6771,38 @@ function updateEnemyState(enemy, delta) {
   }
 
   const canSeePlayer = canEnemySeePlayer(enemy, delta);
-  if (!canSeePlayer) {
+  if (canSeePlayer) {
+    alertEnemy(enemy);
+  } else if (!enemy.alerted) {
     setEnemyLoopState(enemy, "idle", "Skeletons_Idle");
     return;
   }
 
   const distanceToPlayer = getEnemyDistanceToPlayer(enemy);
-  faceEnemyTowardPlayer(enemy);
+  const hasAttackSight = canSeePlayer || canEnemySeePlayer(enemy, 0, { force: true });
 
-  if (distanceToPlayer <= enemyAttackRange && enemy.attackCooldown <= 0) {
+  if (distanceToPlayer <= enemyAttackRange && enemy.attackCooldown <= 0 && hasAttackSight) {
+    faceEnemyTowardPlayer(enemy);
     startEnemyAttack(enemy);
     return;
   }
 
-  if (distanceToPlayer > enemyAttackRange * 0.82) {
+  if (distanceToPlayer > enemyAttackRange * 0.82 || !hasAttackSight) {
     setEnemyLoopState(enemy, "chasing", "Skeletons_Walking");
-    moveEnemyTowardPlayer(enemy, delta, distanceToPlayer);
+    moveEnemyTowardPlayer(enemy, delta, distanceToPlayer, { direct: hasAttackSight });
   } else {
+    faceEnemyTowardPlayer(enemy);
     setEnemyLoopState(enemy, "idle", "Skeletons_Idle");
   }
+}
+
+function alertEnemy(enemy) {
+  if (!enemy || enemy.alerted) {
+    return;
+  }
+
+  enemy.alerted = true;
+  enemy.pathRepathTimer = 0;
 }
 
 function updateEnemyHitFeedback(enemy, delta) {
@@ -7102,6 +6989,10 @@ function damageEnemy(enemy, amount, { source = "generic" } = {}) {
   enemy.hitReactTimer = enemyHitReactDuration;
   enemy.hitReactPhase = Math.random() * Math.PI * 2;
 
+  if (source === "shot") {
+    alertEnemy(enemy);
+  }
+
   if (enemy.health <= 0) {
     killEnemy(enemy);
     return true;
@@ -7253,21 +7144,202 @@ function faceEnemyTowardPlayer(enemy) {
   }
 }
 
-function moveEnemyTowardPlayer(enemy, delta, distanceToPlayer) {
+function moveEnemyTowardPlayer(enemy, delta, distanceToPlayer, { direct = false } = {}) {
+  const target = getEnemyChaseTarget(enemy, delta, { direct });
+  if (!target) {
+    return;
+  }
+
+  moveEnemyTowardWorldPoint(
+    enemy,
+    delta,
+    target.x,
+    target.z,
+    target.isPlayer ? Math.max(0, distanceToPlayer - enemyAttackRange * 0.78) : null,
+  );
+}
+
+function moveEnemyTowardWorldPoint(enemy, delta, targetX, targetZ, maxStepDistance = null) {
   enemyMoveDirection.set(
-    characterModel.position.x - enemy.model.position.x,
+    targetX - enemy.model.position.x,
     0,
-    characterModel.position.z - enemy.model.position.z,
+    targetZ - enemy.model.position.z,
   );
 
-  if (enemyMoveDirection.lengthSq() <= 0.0001) {
+  const distance = enemyMoveDirection.length();
+  if (distance <= 0.0001) {
     return;
   }
 
   enemyMoveDirection.normalize();
-  const step = Math.min(enemyWalkSpeed * (enemy.speedMultiplier || 1) * delta, Math.max(0, distanceToPlayer - enemyAttackRange * 0.78));
+  const distanceLimit = maxStepDistance === null ? distance : Math.max(0, maxStepDistance);
+  const step = Math.min(enemyWalkSpeed * (enemy.speedMultiplier || 1) * delta, distanceLimit);
+  if (step <= 0) {
+    return;
+  }
+
+  const previousX = enemy.model.position.x;
+  const previousZ = enemy.model.position.z;
   enemyNextPosition.copy(enemy.model.position).addScaledVector(enemyMoveDirection, step);
   moveEnemyWithCollision(enemy, enemyNextPosition.x, enemyNextPosition.z);
+
+  enemyMoveDirection.set(
+    enemy.model.position.x - previousX,
+    0,
+    enemy.model.position.z - previousZ,
+  );
+  if (enemyMoveDirection.lengthSq() > 0.0001) {
+    enemy.model.rotation.y = yawFromDirection(enemyMoveDirection.normalize());
+  }
+}
+
+function getEnemyChaseTarget(enemy, delta, { direct = false } = {}) {
+  if (!characterModel) {
+    return null;
+  }
+
+  if (direct) {
+    clearEnemyPath(enemy);
+    return {
+      x: characterModel.position.x,
+      z: characterModel.position.z,
+      isPlayer: true,
+    };
+  }
+
+  const waypoint = getEnemyPathWaypoint(enemy, delta);
+  if (waypoint) {
+    return waypoint;
+  }
+
+  return {
+    x: characterModel.position.x,
+    z: characterModel.position.z,
+    isPlayer: true,
+  };
+}
+
+function getEnemyPathWaypoint(enemy, delta) {
+  if (!mapEditorState.appliedTiles.size) {
+    clearEnemyPath(enemy);
+    return null;
+  }
+
+  const startTile = getWorldTile(enemy.model.position);
+  const targetTile = getWorldTile(characterModel.position);
+  if (!startTile || !targetTile) {
+    clearEnemyPath(enemy);
+    return null;
+  }
+
+  const startKey = tileKey(startTile.x, startTile.z);
+  const targetKey = tileKey(targetTile.x, targetTile.z);
+  if (startKey === targetKey) {
+    clearEnemyPath(enemy);
+    return null;
+  }
+
+  enemy.pathRepathTimer = Math.max(0, enemy.pathRepathTimer - delta);
+  if (
+    enemy.pathRepathTimer <= 0
+    || enemy.pathStartKey !== startKey
+    || enemy.pathTargetKey !== targetKey
+    || !enemy.path.length
+  ) {
+    enemy.path = findAppliedTilePath(startTile, targetTile);
+    enemy.pathStartKey = startKey;
+    enemy.pathTargetKey = targetKey;
+    enemy.pathRepathTimer = enemyPathRepathInterval;
+  }
+
+  while (enemy.path.length > 0 && enemy.path[0] === startKey) {
+    enemy.path.shift();
+  }
+
+  if (!enemy.path.length) {
+    return null;
+  }
+
+  const waypointTile = parseTileKey(enemy.path[0]);
+  const waypoint = mapTileCenterToWorld(waypointTile);
+  const waypointDistance = Math.hypot(
+    waypoint.x - enemy.model.position.x,
+    waypoint.z - enemy.model.position.z,
+  );
+
+  if (waypointDistance <= enemyPathWaypointRadius) {
+    enemy.path.shift();
+    return getEnemyPathWaypoint(enemy, 0);
+  }
+
+  return {
+    x: waypoint.x,
+    z: waypoint.z,
+    isPlayer: false,
+  };
+}
+
+function clearEnemyPath(enemy) {
+  enemy.path = [];
+  enemy.pathStartKey = null;
+  enemy.pathTargetKey = null;
+  enemy.pathRepathTimer = 0;
+}
+
+function findAppliedTilePath(startTile, targetTile) {
+  const startKey = tileKey(startTile.x, startTile.z);
+  const targetKey = tileKey(targetTile.x, targetTile.z);
+  if (
+    !mapEditorState.appliedTiles.has(startKey)
+    || !mapEditorState.appliedTiles.has(targetKey)
+  ) {
+    return [];
+  }
+
+  const queue = [startTile];
+  const cameFrom = new Map([[startKey, null]]);
+  for (let index = 0; index < queue.length; index += 1) {
+    const tile = queue[index];
+    const currentKey = tileKey(tile.x, tile.z);
+    if (currentKey === targetKey) {
+      break;
+    }
+
+    for (const neighbor of getCardinalNeighborTiles(tile)) {
+      const neighborKey = tileKey(neighbor.x, neighbor.z);
+      if (cameFrom.has(neighborKey) || !mapEditorState.appliedTiles.has(neighborKey)) {
+        continue;
+      }
+
+      cameFrom.set(neighborKey, currentKey);
+      queue.push(neighbor);
+    }
+  }
+
+  if (!cameFrom.has(targetKey)) {
+    return [];
+  }
+
+  const path = [];
+  let currentKey = targetKey;
+  while (currentKey && currentKey !== startKey) {
+    path.push(currentKey);
+    currentKey = cameFrom.get(currentKey);
+  }
+
+  path.reverse();
+  return path;
+}
+
+function getWorldTile(position) {
+  const point = worldToMapPoint(position);
+  const x = Math.floor(point.x);
+  const z = Math.floor(point.z);
+  if (x < 0 || z < 0 || x >= mapSize || z >= mapSize) {
+    return null;
+  }
+
+  return { x, z };
 }
 
 function moveEnemyWithCollision(enemy, nextX, nextZ) {
@@ -9155,16 +9227,21 @@ function syncWeaponSlotHud() {
   }
 
   const activeWeaponId = getActiveCombatWeaponId();
-  if (weaponSlotHudElement) {
-    weaponSlotHudElement.hidden = runtimeIsMobile && getUnlockedCombatWeaponIds().length < 2;
-  }
-
+  let visibleSlotCount = 0;
   for (const element of weaponSlotElements) {
     const weaponId = element.dataset.combatWeaponSlot;
     const unlocked = isCombatWeaponUnlocked(weaponId);
+    element.hidden = !unlocked;
     element.classList.toggle("is-unlocked", unlocked);
-    element.classList.toggle("is-active", weaponId === activeWeaponId);
+    element.classList.toggle("is-active", unlocked && weaponId === activeWeaponId);
     element.setAttribute("aria-disabled", unlocked ? "false" : "true");
+    if (unlocked) {
+      visibleSlotCount += 1;
+    }
+  }
+
+  if (weaponSlotHudElement) {
+    weaponSlotHudElement.hidden = visibleSlotCount === 0;
   }
 }
 
