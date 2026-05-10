@@ -972,6 +972,10 @@ body.is-runtime-mobile:not(.has-started) {
   pointer-events: auto;
 }
 
+.weapon-slot-hud[hidden] {
+  display: none;
+}
+
 .weapon-slot {
   display: flex;
   align-items: center;

@@ -9155,6 +9155,10 @@ function syncWeaponSlotHud() {
   }
 
   const activeWeaponId = getActiveCombatWeaponId();
+  if (weaponSlotHudElement) {
+    weaponSlotHudElement.hidden = runtimeIsMobile && getUnlockedCombatWeaponIds().length < 2;
+  }
+
   for (const element of weaponSlotElements) {
     const weaponId = element.dataset.combatWeaponSlot;
     const unlocked = isCombatWeaponUnlocked(weaponId);
