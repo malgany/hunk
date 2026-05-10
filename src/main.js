@@ -172,11 +172,7 @@ const cameraCollisionSearchIterations = 8;
 const cameraCloseViewRatioStart = 0.42;
 const cameraCloseViewRatioEnd = 0.18;
 const playerCameraFadeStartDistance = 1.7;
-const playerCameraFadeEndDistance = 0.85;
 const playerCameraFadeStartCollisionRatio = 0.68;
-const playerCameraFadeEndCollisionRatio = 0.32;
-const playerCameraFadeDamping = 11;
-const playerCameraHiddenOpacity = 0.03;
 const cameraCollisionProbeOffsets = [
   [0, 0],
   [1, 0],
@@ -235,6 +231,7 @@ const impactLightIntensity = 5.6;
 const muzzleFlashDuration = 0.12;
 const muzzleFlashLightIntensity = 15;
 const playerShotAnimationDuration = 0.32;
+const playerShotWindupDuration = 0.14;
 const enemyHitReactDuration = 0.18;
 const enemyMaxHealth = 20;
 const enemyVisionDistance = platformTileSize * 7.2;
@@ -1672,6 +1669,7 @@ function createPlayerControlState() {
     dead: false,
     fireCooldown: 0,
     shotAnimationTimer: 0,
+    pendingShotTimer: 0,
     hitReactTimer: 0,
     virtualMove: {
       active: false,
@@ -2273,18 +2271,37 @@ function updatePlayerControls(delta) {
 function updatePlayerWeaponFire(delta) {
   playerControlState.fireCooldown = Math.max(0, playerControlState.fireCooldown - delta);
   playerControlState.shotAnimationTimer = Math.max(0, playerControlState.shotAnimationTimer - delta);
+
+  if (playerControlState.pendingShotTimer > 0) {
+    playerControlState.pendingShotTimer = Math.max(0, playerControlState.pendingShotTimer - delta);
+    if (playerControlState.pendingShotTimer <= 0) {
+      firePreparedPlayerWeapon();
+    }
+    return;
+  }
+
   tryFirePlayerWeapon();
 }
 
 function tryFirePlayerWeapon({ force = false } = {}) {
   if (
     !playerControlState.shooting
+    || playerControlState.pendingShotTimer > 0
     || (!force && playerControlState.fireCooldown > 0)
     || cameraControlState.freeCamera
   ) {
     return false;
   }
 
+  playerControlState.pendingShotTimer = playerShotWindupDuration;
+  playerControlState.shotAnimationTimer = Math.max(
+    playerControlState.shotAnimationTimer,
+    playerShotWindupDuration + playerShotAnimationDuration,
+  );
+  return true;
+}
+
+function firePreparedPlayerWeapon() {
   const shotStartTime = performanceProfile.perfOverlayEnabled ? performance.now() : 0;
   if (!firePlayerProjectile()) {
     return false;
@@ -2887,29 +2904,17 @@ function updateCameraAnchorFromCharacter() {
   );
 }
 
-function updatePlayerCameraFade(delta) {
+function updatePlayerCameraFade() {
   if (!characterModel) {
     return;
   }
 
   const targetOpacity = getPlayerCameraTargetOpacity();
-  const smoothingDelta = Number.isFinite(delta) && delta > 0 ? delta : 1 / 60;
-  let nextOpacity = THREE.MathUtils.damp(
-    playerCameraOpacity,
-    targetOpacity,
-    playerCameraFadeDamping,
-    smoothingDelta,
-  );
-
-  if (Math.abs(nextOpacity - targetOpacity) < 0.006) {
-    nextOpacity = targetOpacity;
-  }
-
-  if (Math.abs(nextOpacity - playerCameraOpacity) < 0.001) {
+  if (targetOpacity === playerCameraOpacity) {
     return;
   }
 
-  playerCameraOpacity = nextOpacity;
+  playerCameraOpacity = targetOpacity;
   applyPlayerCameraOpacity(playerCameraOpacity);
 }
 
@@ -2919,26 +2924,18 @@ function getPlayerCameraTargetOpacity() {
   }
 
   const cameraDistance = camera.position.distanceTo(cameraControlState.anchorTarget);
-  const distanceOpacity = THREE.MathUtils.smoothstep(
-    cameraDistance,
-    playerCameraFadeEndDistance,
-    playerCameraFadeStartDistance,
-  );
   const collisionRatio = Number.isFinite(cameraControlState.collisionRatio)
     ? cameraControlState.collisionRatio
     : 1;
-  const collisionOpacity = THREE.MathUtils.smoothstep(
-    collisionRatio,
-    playerCameraFadeEndCollisionRatio,
-    playerCameraFadeStartCollisionRatio,
-  );
+  const shouldHidePlayer = cameraDistance <= playerCameraFadeStartDistance
+    || collisionRatio <= playerCameraFadeStartCollisionRatio;
 
-  return Math.min(distanceOpacity, collisionOpacity);
+  return shouldHidePlayer ? 0 : 1;
 }
 
 function applyPlayerCameraOpacity(opacity) {
   const clampedOpacity = THREE.MathUtils.clamp(opacity, 0, 1);
-  const isHidden = clampedOpacity <= playerCameraHiddenOpacity;
+  const isHidden = clampedOpacity <= 0;
 
   characterModel.traverse((node) => {
     if (!node.isMesh || !node.material) {
