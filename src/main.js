@@ -10,7 +10,12 @@ const statusElement = document.querySelector("#status");
 const crosshairElement = document.querySelector("[data-crosshair]");
 const phoneShellElement = document.querySelector(".phone-shell");
 const healthHudElement = document.querySelector("[data-health-hud]");
+const healthBarFillElement = document.querySelector("[data-health-bar-fill]");
+const ammoHudElement = document.querySelector("[data-ammo-hud]");
+const ammoCountElement = document.querySelector("[data-ammo-count]");
+const ammoPickupToastElement = document.querySelector("[data-ammo-pickup-toast]");
 const damageFlashElement = document.querySelector("[data-damage-flash]");
+const stageBannerElement = document.querySelector("[data-stage-banner]");
 const mobileJoystickElement = document.querySelector("[data-mobile-joystick]");
 const mobileJoystickStickElement = document.querySelector("[data-mobile-joystick-stick]");
 const mobileFireButton = document.querySelector("[data-mobile-fire-button]");
@@ -25,6 +30,10 @@ const mapZoomOutButton = document.querySelector("#mapZoomOut");
 const mapZoomResetButton = document.querySelector("#mapZoomReset");
 const mapZoomInButton = document.querySelector("#mapZoomIn");
 const applyMapButton = document.querySelector("#applyMapButton");
+const clearMapButton = document.querySelector("#clearMapButton");
+const generateMapButton = document.querySelector("#generateMapButton");
+const saveFloorButton = document.querySelector("#saveFloorButton");
+const floorStackElement = document.querySelector("#floorStack");
 const showTileEdgesInput = document.querySelector("#showTileEdges");
 const showTileEdgesValue = document.querySelector("#showTileEdgesValue");
 const mapCoveredInput = document.querySelector("#mapCovered");
@@ -134,7 +143,7 @@ const materialControls = {
   wall: { select: wallMaterialSelect, preview: wallMaterialPreview },
   ceiling: { select: ceilingMaterialSelect, preview: ceilingMaterialPreview },
 };
-const mapTools = new Set(["tile", "light", "enemy"]);
+const mapTools = new Set(["tile", "enemy", "boss"]);
 const mapDirectionOptions = [
   { id: "east", x: 1, z: 0 },
   { id: "southeast", x: 1, z: 1 },
@@ -155,14 +164,6 @@ const platformWallTilesHigh = 2;
 const platformWallHeight = platformTileSize * platformWallTilesHigh;
 const platformWallThickness = 0.32;
 const platformCeilingThickness = 0.2;
-const sewerLightCableLength = 0.68;
-const sewerStageLightColors = [0xffd591, 0xb8ffd6, 0xffc46f, 0xdce7ff, 0xf0ffad, 0xffa985];
-const sewerFillLightDistance = platformTileSize * 3.1;
-const sewerDownLightDistance = platformTileSize * 4.6;
-const sewerFillLightIntensity = 72;
-const sewerDownLightIntensity = 255;
-const sewerMaxShadowCastingSpotLights = 6;
-const sewerReservedFragmentTextureUnits = 6;
 const wallOcclusionOpacity = 0.16;
 const cameraCollisionRadius = 1.05;
 const cameraCollisionWallPadding = 0.42;
@@ -222,10 +223,27 @@ const mobileJoystickRadius = 58;
 const mobileJoystickDeadZone = 0.08;
 const mobileJoystickRunThreshold = 0.92;
 const playerMaxHealth = 50;
+const playerMaxAmmo = 20;
+const playerStartingAmmo = 20;
 const playerFireInterval = 1;
 const projectileMaxDistance = 80;
 const projectileBodyDamage = 2;
 const projectileHeadDamage = 10;
+const ammoPickupAmount = 10;
+const ammoDropChance = 0.05;
+const ammoPickupRadius = 1.25;
+const ammoPickupBoxHeight = 0.22;
+const ammoPickupToastDuration = 0.9;
+const enemyHealthBarCanvasWidth = 128;
+const enemyHealthBarCanvasHeight = 24;
+const enemyHealthBarNormalWidth = 1.9;
+const enemyHealthBarBossWidth = 3.2;
+const enemyHealthBarHeight = 0.26;
+const enemyHealthBarVerticalPadding = 0.38;
+const damageNumberCanvasWidth = 128;
+const damageNumberCanvasHeight = 80;
+const damageNumberDuration = 0.78;
+const damageNumberRise = 1.15;
 const impactEffectDuration = 0.22;
 const impactLightIntensity = 5.6;
 const muzzleFlashDuration = 0.12;
@@ -234,6 +252,11 @@ const playerShotAnimationDuration = 0.32;
 const playerShotWindupDuration = 0.14;
 const enemyHitReactDuration = 0.18;
 const enemyMaxHealth = 20;
+const bossHealthMultiplier = 4;
+const bossScaleMultiplier = 2;
+const bossSpeedMultiplier = 3;
+const bossAttackDamageMultiplier = 3;
+const bossSpawnCountdownSeconds = 10;
 const enemyVisionDistance = platformTileSize * 7.2;
 const enemyWalkSpeed = 1.35;
 const enemyCollisionRadius = 0.75;
@@ -245,9 +268,6 @@ const collisionDebugFillOpacity = 0.18;
 const collisionDebugEdgeOpacity = 0.78;
 const collisionDebugPlayerColor = 0x3ccfff;
 const collisionDebugEnemyColor = 0xff5d4e;
-const enemySpawnGroundChance = 0.05;
-const enemyAwakenFloorLongChance = 0.07;
-const enemyAwakenFloorChance = 0.18;
 const enemyHalfHealthFallChance = 0.3;
 const enemyDownedSecondsMin = 1.8;
 const enemyDownedSecondsMax = 3.2;
@@ -547,13 +567,10 @@ const maskAtlasMaterials = new Set();
 const enemyAnimationIds = [
   "Skeletons_Idle",
   "Skeletons_Walking",
-  "Skeletons_Awaken_Floor",
-  "Skeletons_Awaken_Floor_Long",
   "Skeletons_Spawn_Ground",
   "Skeletons_Death",
   "Skeletons_Death_Pose",
   "Skeletons_Death_Resurrect",
-  "EXPERIMENTAL_Medium_Transform",
   "Melee_Unarmed_Attack_Punch_A",
   "Melee_1H_Attack_Chop",
 ];
@@ -617,6 +634,9 @@ let enemyGroup = null;
 let activeEnemies = [];
 let activeImpactEffects = [];
 let activeMuzzleFlashes = [];
+let activeDamageNumbers = [];
+let activeAmmoPickups = [];
+let ammoPickupToastTimer = 0;
 let playerCameraOpacity = 1;
 const wallOcclusionRaycaster = new THREE.Raycaster();
 const wallOcclusionTarget = new THREE.Vector3();
@@ -645,6 +665,9 @@ const projectileEnemyHit = {
 const projectileHitPoint = new THREE.Vector3();
 const projectileBodyBox = new THREE.Box3();
 const projectileHeadBox = new THREE.Box3();
+const damageNumberPosition = new THREE.Vector3();
+const damageNumberCameraOffset = new THREE.Vector3();
+const ammoPickupPosition = new THREE.Vector3();
 const muzzleFlashPosition = new THREE.Vector3();
 const muzzleFlashWeaponCenter = new THREE.Vector3();
 const muzzleFlashWeaponSize = new THREE.Vector3();
@@ -678,6 +701,7 @@ let mapEditorSyncTimer = 0;
 let mapEditorSyncPending = false;
 let perfOverlayState = null;
 let sceneLoadStarted = false;
+let stageFlowState = createStageFlowState();
 
 function clip(id, loop = false, options = {}) {
   return { id, loop, ...options };
@@ -715,6 +739,14 @@ const muzzleFlashMaterial = new THREE.MeshBasicMaterial({
   opacity: 0.96,
   blending: THREE.AdditiveBlending,
   depthWrite: false,
+});
+const ammoPickupGeometry = new THREE.BoxGeometry(0.84, ammoPickupBoxHeight, 0.48);
+const ammoPickupMaterial = new THREE.MeshBasicMaterial({
+  color: 0xb92828,
+});
+const ammoPickupTopGeometry = new THREE.BoxGeometry(0.56, 0.025, 0.12);
+const ammoPickupTopMaterial = new THREE.MeshBasicMaterial({
+  color: 0xc8c8c8,
 });
 const collisionDebugBoxGeometry = new THREE.BoxGeometry(1, 1, 1);
 const collisionDebugEdgesGeometry = new THREE.EdgesGeometry(collisionDebugBoxGeometry);
@@ -829,14 +861,11 @@ function createPerformanceProfile() {
   const isMobile = runtimeIsMobile;
 
   return {
-    antialias: !isMobile,
-    maxPixelRatio: isMobile ? 1 : 1.5,
-    shadowsEnabled: !isMobile,
-    maxShadowSpotLights: isMobile ? 0 : sewerMaxShadowCastingSpotLights,
-    maxStageDynamicLights: isMobile ? 5 : Infinity,
-    stageSpotLightsEnabled: !isMobile,
-    effectLightsEnabled: !isMobile,
-    textureAnisotropy: isMobile ? 1 : 4,
+    antialias: false,
+    maxPixelRatio: 1,
+    shadowsEnabled: false,
+    effectLightsEnabled: false,
+    textureAnisotropy: 1,
     enemyNearUpdateDistance: enemyVisionDistance * (isMobile ? 1.05 : 1.35),
     enemyFarMixerInterval: isMobile ? 0.12 : 0.08,
     enemyLosInterval: isMobile ? 0.22 : 0.12,
@@ -868,6 +897,10 @@ renderer.setAnimationLoop((timestamp) => {
 
   updateImpactEffects(delta);
   updateEnemies(delta);
+  updateEnemyCombatIndicators(delta);
+  updateAmmoPickups(delta);
+  updateAmmoPickupToast(delta);
+  updateStageFlow(delta);
   updateDeferredMapEditorSync(delta);
 
   if (cameraControlState.freeCamera) {
@@ -905,6 +938,9 @@ function startGame() {
   }
 
   document.body.classList.add("has-started");
+  clearPlayerMouseButtons();
+  syncPlayerHealthHud();
+  syncPlayerAmmoHud();
 
   if (startScreen) {
     startScreen.setAttribute("aria-hidden", "true");
@@ -1272,6 +1308,11 @@ function setupMapEditor() {
   });
   applyMapButton.addEventListener("click", () => {
     applyMapEditorState();
+  });
+  clearMapButton?.addEventListener("click", clearMapEditor);
+  generateMapButton?.addEventListener("click", generateMapEditorLayout);
+  saveFloorButton?.addEventListener("click", () => {
+    saveCurrentMapFloor();
   });
   showTileEdgesInput.addEventListener("change", () => {
     setMapBuildOption("showTileEdges", showTileEdgesInput.checked);
@@ -1666,6 +1707,8 @@ function createPlayerControlState() {
     pointerLocked: false,
     maxHealth: playerMaxHealth,
     health: playerMaxHealth,
+    maxAmmo: playerMaxAmmo,
+    ammo: playerStartingAmmo,
     dead: false,
     fireCooldown: 0,
     shotAnimationTimer: 0,
@@ -2198,8 +2241,7 @@ function mouseButtonMaskFromButton(button) {
 
 function isPlayerMouseInputActive(event) {
   return document.pointerLockElement === renderer.domElement
-    || event.target === renderer.domElement
-    || isEventInsideRenderer(event);
+    || event.target === renderer.domElement;
 }
 
 function requestPlayerPointerLock() {
@@ -2303,10 +2345,19 @@ function tryFirePlayerWeapon({ force = false } = {}) {
 
 function firePreparedPlayerWeapon() {
   const shotStartTime = performanceProfile.perfOverlayEnabled ? performance.now() : 0;
+  if (playerControlState.ammo <= 0) {
+    playerControlState.fireCooldown = playerFireInterval;
+    playerControlState.shotAnimationTimer = playerShotAnimationDuration * 0.55;
+    syncPlayerAmmoHud();
+    return false;
+  }
+
   if (!firePlayerProjectile()) {
     return false;
   }
 
+  playerControlState.ammo = Math.max(0, playerControlState.ammo - 1);
+  syncPlayerAmmoHud();
   recordProjectileShotPerf(shotStartTime);
   playerControlState.shotAnimationTimer = playerShotAnimationDuration;
   playerControlState.fireCooldown = playerFireInterval;
@@ -2336,7 +2387,8 @@ function firePlayerProjectile() {
       ? projectileHeadDamage
       : projectileBodyDamage;
     createImpactEffect(enemyHit.point, shotImpactNormal, { hitEnemy: true });
-    damageEnemy(enemyHit.enemy, damage, { source: "shot" });
+    spawnEnemyDamageNumber(enemyHit.enemy, damage, { headshot: enemyHit.headshot, point: enemyHit.point });
+    damageEnemy(enemyHit.enemy, damage, { source: "shot", headshot: enemyHit.headshot });
     return true;
   }
 
@@ -2400,8 +2452,8 @@ function intersectProjectileEnemyHitboxes(enemy, maxDistance) {
     getBoxHitNormal(projectileHeadBox, headPoint, projectileEnemyHit.normal);
   }
 
-  const bodyPoint = enemyProjectileRaycaster.ray.intersectBox(projectileBodyBox, shotImpactPoint);
-  if (bodyPoint) {
+  const bodyPoint = hitHead ? null : enemyProjectileRaycaster.ray.intersectBox(projectileBodyBox, shotImpactPoint);
+  if (!hitHead && bodyPoint) {
     const bodyDistance = camera.position.distanceTo(bodyPoint);
     if (bodyDistance < hitDistance) {
       hitDistance = bodyDistance;
@@ -2705,6 +2757,117 @@ function clearImpactEffects() {
   }
 
   activeMuzzleFlashes = [];
+}
+
+function trySpawnAmmoDrop(enemy) {
+  if (enemy.type === "boss" || Math.random() >= ammoDropChance) {
+    return;
+  }
+
+  spawnAmmoPickup(enemy.model.position);
+}
+
+function spawnAmmoPickup(position) {
+  const group = new THREE.Group();
+  group.name = "AmmoPickup";
+  const box = new THREE.Mesh(ammoPickupGeometry, ammoPickupMaterial);
+  const topMark = new THREE.Mesh(ammoPickupTopGeometry, ammoPickupTopMaterial);
+
+  box.name = "AmmoPickupBox";
+  topMark.name = "AmmoPickupMark";
+  topMark.position.y = (ammoPickupBoxHeight / 2) + 0.016;
+  group.add(box, topMark);
+  group.position.set(position.x, ammoPickupBoxHeight / 2, position.z);
+  group.rotation.y = Math.random() * Math.PI * 2;
+  group.traverse((node) => {
+    if (node.isMesh) {
+      node.castShadow = false;
+      node.receiveShadow = false;
+      node.frustumCulled = true;
+    }
+  });
+
+  scene.add(group);
+  activeAmmoPickups.push({
+    group,
+    amount: ammoPickupAmount,
+    age: 0,
+  });
+}
+
+function updateAmmoPickups(delta) {
+  if (!activeAmmoPickups.length || !characterModel || playerControlState.dead) {
+    return;
+  }
+
+  for (let index = activeAmmoPickups.length - 1; index >= 0; index -= 1) {
+    const pickup = activeAmmoPickups[index];
+    pickup.age += delta;
+    pickup.group.rotation.y += delta * 1.4;
+    pickup.group.position.y = (ammoPickupBoxHeight / 2) + Math.sin(pickup.age * 4.8) * 0.025;
+
+    ammoPickupPosition.copy(pickup.group.position);
+    const distanceSq = (
+      ((characterModel.position.x - ammoPickupPosition.x) ** 2)
+      + ((characterModel.position.z - ammoPickupPosition.z) ** 2)
+    );
+
+    if (distanceSq > ammoPickupRadius * ammoPickupRadius) {
+      continue;
+    }
+
+    collectAmmoPickup(pickup);
+    activeAmmoPickups.splice(index, 1);
+  }
+}
+
+function collectAmmoPickup(pickup) {
+  playerControlState.ammo = Math.min(
+    playerControlState.maxAmmo,
+    playerControlState.ammo + pickup.amount,
+  );
+  syncPlayerAmmoHud();
+  showAmmoPickupToast(pickup.amount);
+  pickup.group.removeFromParent();
+}
+
+function clearAmmoPickups() {
+  for (const pickup of activeAmmoPickups) {
+    pickup.group.removeFromParent();
+  }
+  activeAmmoPickups = [];
+}
+
+function showAmmoPickupToast(amount) {
+  if (!ammoPickupToastElement) {
+    return;
+  }
+
+  ammoPickupToastElement.textContent = `+${amount}`;
+  ammoPickupToastElement.hidden = false;
+  ammoPickupToastElement.classList.remove("is-visible");
+  // Force the transition to replay when pickups happen quickly.
+  void ammoPickupToastElement.offsetWidth;
+  ammoPickupToastElement.classList.add("is-visible");
+  ammoPickupToastTimer = ammoPickupToastDuration;
+}
+
+function updateAmmoPickupToast(delta) {
+  if (!ammoPickupToastElement || ammoPickupToastTimer <= 0) {
+    return;
+  }
+
+  ammoPickupToastTimer = Math.max(0, ammoPickupToastTimer - delta);
+  if (ammoPickupToastTimer > 0) {
+    return;
+  }
+
+  ammoPickupToastElement.classList.remove("is-visible");
+  window.setTimeout(() => {
+    if (ammoPickupToastTimer <= 0) {
+      ammoPickupToastElement.hidden = true;
+    }
+  }, 220);
 }
 
 function getPlayerMovementVector() {
@@ -3097,24 +3260,25 @@ function isTypingTarget(target) {
 }
 
 function createInitialMapEditorState() {
-  const activeTiles = createDefaultMapTiles();
-  const playerPosition = createDefaultMapPlayerPosition(activeTiles);
-  const playerDirection = normalizeMapDirection(defaultMapConfig.playerDirection);
-  const lights = createDefaultMapLights(activeTiles);
-  const enemies = createDefaultMapEnemies(activeTiles);
-  const materials = createDefaultMapMaterials();
+  const floors = createDefaultMapFloors();
+  const floor = floors[0] || createBlankMapFloorConfig();
+  const activeTiles = normalizeMapConfigTiles(floor.tiles);
+  const playerPosition = createDefaultMapPlayerPosition(activeTiles, floor.playerPosition);
+  const playerDirection = normalizeMapDirection(floor.playerDirection);
+  const enemies = createDefaultMapEnemies(activeTiles, floor.enemies);
+  const materials = createDefaultMapMaterials(floor.materials);
   const appliedShowTileEdges = false;
   const appliedIsCovered = true;
 
   return {
+    floors,
+    activeFloorIndex: 0,
     activeTiles,
     appliedTiles: cloneTileSet(activeTiles),
     playerPosition,
     appliedPlayerPosition: { ...playerPosition },
     playerDirection,
     appliedPlayerDirection: playerDirection,
-    lights,
-    appliedLights: cloneTileSet(lights),
     enemies,
     appliedEnemies: cloneMapEnemies(enemies),
     materials,
@@ -3134,6 +3298,64 @@ function createInitialMapEditorState() {
     persisting: false,
     feedbackMessage: null,
     feedbackIsError: false,
+  };
+}
+
+function createDefaultMapFloors() {
+  const sourceFloors = Array.isArray(defaultMapConfig.floors) && defaultMapConfig.floors.length > 0
+    ? defaultMapConfig.floors
+    : [defaultMapConfig];
+  const floors = sourceFloors
+    .map((floor) => normalizeMapFloorConfig(floor))
+    .filter(Boolean);
+
+  return floors.length ? floors : [createDefaultMapFloorConfig()];
+}
+
+function normalizeMapFloorConfig(source = {}) {
+  const activeTiles = normalizeMapConfigTiles(source.tiles);
+  if (activeTiles.size === 0) {
+    return null;
+  }
+
+  const playerPosition = createDefaultMapPlayerPosition(activeTiles, source.playerPosition);
+  const playerDirection = normalizeMapDirection(source.playerDirection);
+  const enemies = createDefaultMapEnemies(activeTiles, source.enemies);
+  const materials = createDefaultMapMaterials(source.materials);
+
+  return {
+    tiles: tileSetToSortedArray(activeTiles),
+    playerPosition,
+    playerDirection,
+    enemies,
+    materials,
+    showTileEdges: false,
+    isCovered: true,
+  };
+}
+
+function createDefaultMapFloorConfig() {
+  const activeTiles = createDefaultMapTiles();
+  return {
+    tiles: tileSetToSortedArray(activeTiles),
+    playerPosition: createDefaultMapPlayerPosition(activeTiles, defaultMapConfig.playerPosition),
+    playerDirection: normalizeMapDirection(defaultMapConfig.playerDirection),
+    enemies: createDefaultMapEnemies(activeTiles, defaultMapConfig.enemies),
+    materials: createDefaultMapMaterials(defaultMapConfig.materials),
+    showTileEdges: false,
+    isCovered: true,
+  };
+}
+
+function createBlankMapFloorConfig() {
+  return {
+    tiles: [],
+    playerPosition: { x: mapCenter, z: mapCenter },
+    playerDirection: defaultMapDirection,
+    enemies: [],
+    materials: createDefaultMapMaterials(),
+    showTileEdges: false,
+    isCovered: true,
   };
 }
 
@@ -3172,8 +3394,7 @@ function normalizeMapConfigTiles(tiles) {
   return normalized;
 }
 
-function createDefaultMapPlayerPosition(activeTiles) {
-  const configuredPosition = defaultMapConfig.playerPosition || {};
+function createDefaultMapPlayerPosition(activeTiles, configuredPosition = defaultMapConfig.playerPosition || {}) {
   const position = {
     x: Number(configuredPosition.x),
     z: Number(configuredPosition.z),
@@ -3202,54 +3423,22 @@ function createDefaultMapPlayerPosition(activeTiles) {
   return { x: mapCenter, z: mapCenter };
 }
 
-function createDefaultMapLights(activeTiles) {
-  const normalized = new Set();
-  if (!Array.isArray(defaultMapConfig.lights)) {
-    return normalized;
-  }
-
-  for (const light of defaultMapConfig.lights) {
-    const tile = normalizeMapTilePoint(light);
-    if (tile && activeTiles.has(tileKey(tile.x, tile.z))) {
-      normalized.add(tileKey(tile.x, tile.z));
-    }
-  }
-
-  return normalized;
-}
-
-function createDefaultMapEnemies(activeTiles) {
-  if (!Array.isArray(defaultMapConfig.enemies)) {
+function createDefaultMapEnemies(activeTiles, enemies = defaultMapConfig.enemies) {
+  if (!Array.isArray(enemies)) {
     return [];
   }
 
-  return defaultMapConfig.enemies
+  return enemies
     .map((enemy) => normalizeMapEnemy(enemy, activeTiles))
     .filter(Boolean);
 }
 
-function createDefaultMapMaterials() {
-  const configuredMaterials = defaultMapConfig.materials || {};
+function createDefaultMapMaterials(configuredMaterials = defaultMapConfig.materials || {}) {
   return {
     floor: normalizeMapMaterialId("floor", configuredMaterials.floor),
     wall: normalizeMapMaterialId("wall", configuredMaterials.wall),
     ceiling: normalizeMapMaterialId("ceiling", configuredMaterials.ceiling),
   };
-}
-
-function normalizeMapTilePoint(source) {
-  const point = Array.isArray(source) ? { x: source[0], z: source[1] } : source;
-  const x = Number(point?.x);
-  const z = Number(point?.z);
-
-  if (!Number.isFinite(x) || !Number.isFinite(z)) {
-    return null;
-  }
-
-  return tileFromMapPoint({
-    x: THREE.MathUtils.clamp(x, 0, mapSize - 0.001),
-    z: THREE.MathUtils.clamp(z, 0, mapSize - 0.001),
-  });
 }
 
 function normalizeMapEnemy(enemy, activeTiles = mapEditorState?.activeTiles) {
@@ -3274,7 +3463,12 @@ function normalizeMapEnemy(enemy, activeTiles = mapEditorState?.activeTiles) {
     x: normalizedPosition.x,
     z: normalizedPosition.z,
     direction: normalizeMapDirection(position?.direction),
+    type: normalizeMapEnemyType(position?.type),
   };
+}
+
+function normalizeMapEnemyType(value) {
+  return value === "boss" ? "boss" : "skeleton";
 }
 
 function normalizeMapMaterialId(surface, value) {
@@ -3293,17 +3487,100 @@ function cloneMapEnemies(enemies) {
   return enemies.map((enemy) => ({ ...enemy }));
 }
 
+function tileSetToSortedArray(tiles) {
+  return [...tiles]
+    .map((key) => {
+      const tile = parseTileKey(key);
+      return [tile.x, tile.z];
+    })
+    .sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+}
+
 function createAppliedMapSnapshot() {
   return {
     activeTiles: cloneTileSet(mapEditorState.appliedTiles),
     playerPosition: { ...mapEditorState.appliedPlayerPosition },
     playerDirection: mapEditorState.appliedPlayerDirection,
-    lights: cloneTileSet(mapEditorState.appliedLights),
     enemies: cloneMapEnemies(mapEditorState.appliedEnemies),
     materials: { ...mapEditorState.appliedMaterials },
     showTileEdges: mapEditorState.appliedShowTileEdges,
     isCovered: mapEditorState.appliedIsCovered,
   };
+}
+
+function createMapFloorConfigFromEditor({ applied = false } = {}) {
+  const tiles = applied ? mapEditorState.appliedTiles : mapEditorState.activeTiles;
+  const playerPosition = applied ? mapEditorState.appliedPlayerPosition : mapEditorState.playerPosition;
+  const playerDirection = applied ? mapEditorState.appliedPlayerDirection : mapEditorState.playerDirection;
+  const enemies = applied ? mapEditorState.appliedEnemies : mapEditorState.enemies;
+  const materials = applied ? mapEditorState.appliedMaterials : mapEditorState.materials;
+
+  return {
+    tiles: tileSetToSortedArray(tiles),
+    playerPosition: {
+      x: roundMapCoordinate(playerPosition.x),
+      z: roundMapCoordinate(playerPosition.z),
+    },
+    playerDirection: normalizeMapDirection(playerDirection),
+    enemies: cloneMapEnemies(enemies)
+      .sort((a, b) => a.z - b.z || a.x - b.x || enemyTypeSortValue(a.type) - enemyTypeSortValue(b.type))
+      .map((enemy) => ({
+        x: roundMapCoordinate(enemy.x),
+        z: roundMapCoordinate(enemy.z),
+        direction: normalizeMapDirection(enemy.direction),
+        type: normalizeMapEnemyType(enemy.type),
+      })),
+    materials: { ...materials },
+    showTileEdges: false,
+    isCovered: true,
+  };
+}
+
+function enemyTypeSortValue(type) {
+  return normalizeMapEnemyType(type) === "boss" ? 1 : 0;
+}
+
+function loadMapFloorIntoEditor(floor, floorIndex) {
+  const activeTiles = normalizeMapConfigTiles(floor.tiles);
+  mapEditorState.activeFloorIndex = floorIndex;
+  mapEditorState.activeTiles = activeTiles;
+  mapEditorState.appliedTiles = cloneTileSet(activeTiles);
+  mapEditorState.playerPosition = createDefaultMapPlayerPosition(activeTiles, floor.playerPosition);
+  mapEditorState.appliedPlayerPosition = { ...mapEditorState.playerPosition };
+  mapEditorState.playerDirection = normalizeMapDirection(floor.playerDirection);
+  mapEditorState.appliedPlayerDirection = mapEditorState.playerDirection;
+  mapEditorState.enemies = createDefaultMapEnemies(activeTiles, floor.enemies);
+  mapEditorState.appliedEnemies = cloneMapEnemies(mapEditorState.enemies);
+  mapEditorState.materials = createDefaultMapMaterials(floor.materials);
+  mapEditorState.appliedMaterials = { ...mapEditorState.materials };
+  mapEditorState.showTileEdges = false;
+  mapEditorState.appliedShowTileEdges = false;
+  mapEditorState.isCovered = true;
+  mapEditorState.appliedIsCovered = true;
+  mapEditorState.pendingDirection = null;
+  mapEditorState.hoverTile = null;
+  mapEditorState.interactionMode = null;
+  mapEditorState.pointerId = null;
+  mapEditorState.dirty = false;
+  mapEditorState.feedbackMessage = null;
+  mapEditorState.feedbackIsError = false;
+  mapCanvas?.classList.remove("is-picking-direction", "is-dragging-player");
+
+  rebuildPlatformFromAppliedMap();
+  positionCharacterOnMap(mapEditorState.appliedPlayerPosition, mapEditorState.appliedPlayerDirection);
+  renderAppliedEnemies();
+  frameScene();
+  updateMapHud();
+  renderMapEditor();
+  updateMapEditorControls();
+}
+
+function beginNewMapFloor() {
+  const blankFloor = createBlankMapFloorConfig();
+  mapEditorState.activeFloorIndex = mapEditorState.floors.length;
+  loadMapFloorIntoEditor(blankFloor, mapEditorState.activeFloorIndex);
+  mapEditorState.feedbackMessage = "Novo andar";
+  updateMapEditorControls();
 }
 
 function setMapBuildOption(option, value) {
@@ -3366,11 +3643,246 @@ function setMapMaterial(surface, materialId) {
   updateMapEditorControls();
 }
 
+function clearMapEditor() {
+  mapEditorState.activeTiles = new Set();
+  mapEditorState.enemies = [];
+  mapEditorState.playerPosition = { x: mapCenter, z: mapCenter };
+  mapEditorState.playerDirection = defaultMapDirection;
+  mapEditorState.pendingDirection = null;
+  mapCanvas.classList.remove("is-picking-direction");
+  markMapDirty();
+  renderMapEditor();
+  updateMapEditorControls();
+}
+
+function generateMapEditorLayout() {
+  const generatedFloor = createGeneratedMapFloor();
+  mapEditorState.activeTiles = normalizeMapConfigTiles(generatedFloor.tiles);
+  mapEditorState.playerPosition = { ...generatedFloor.playerPosition };
+  mapEditorState.playerDirection = generatedFloor.playerDirection;
+  mapEditorState.enemies = [];
+  mapEditorState.pendingDirection = null;
+  mapCanvas.classList.remove("is-picking-direction");
+  markMapDirty();
+  mapEditorState.feedbackMessage = "Mapa gerado";
+  renderMapEditor();
+  updateMapEditorControls();
+}
+
+function createGeneratedMapFloor() {
+  const activeTiles = new Set();
+  const horizontal = Math.random() < 0.5;
+  const reverse = Math.random() < 0.5;
+  const bands = createGeneratedBands();
+
+  if (horizontal) {
+    carveGeneratedHorizontalSnake(activeTiles, bands, reverse);
+  } else {
+    carveGeneratedVerticalSnake(activeTiles, bands, reverse);
+  }
+
+  const startBand = bands[0];
+  const startPoint = getGeneratedSnakeEndpoint(startBand, horizontal, reverse, true);
+  const nextPoint = getGeneratedSnakeEndpoint(startBand, horizontal, reverse, false);
+  const playerPosition = {
+    x: startPoint.x,
+    z: startPoint.z,
+  };
+
+  return {
+    tiles: tileSetToSortedArray(activeTiles),
+    playerPosition,
+    playerDirection: directionFromMapPoints(
+      playerPosition,
+      nextPoint,
+      defaultMapDirection,
+    ),
+    enemies: [],
+    materials: { ...mapEditorState.materials },
+    showTileEdges: false,
+    isCovered: true,
+  };
+}
+
+function createGeneratedBands() {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const bands = [];
+    let cursor = 0;
+
+    while (cursor <= mapSize - 2) {
+      const remaining = mapSize - cursor;
+      let width = Math.random() < 0.92 ? 3 : 2;
+      if (remaining < width) {
+        width = remaining >= 2 ? remaining : 0;
+      }
+
+      if (width < 2) {
+        break;
+      }
+
+      bands.push({ start: cursor, width });
+      cursor += width + 1;
+    }
+
+    if (bands.length >= 4 && getGeneratedBandCoverage(bands) >= 11) {
+      return bands;
+    }
+  }
+
+  return [
+    { start: 0, width: 3 },
+    { start: 4, width: 3 },
+    { start: 8, width: 3 },
+    { start: 12, width: 3 },
+  ];
+}
+
+function getGeneratedBandCoverage(bands) {
+  return bands.reduce((total, band) => total + band.width, 0);
+}
+
+function carveGeneratedHorizontalSnake(activeTiles, bands, reverse) {
+  for (let index = 0; index < bands.length; index += 1) {
+    const band = bands[index];
+    carveGeneratedTileBlock(activeTiles, 0, band.start, mapSize, band.width);
+
+    if (index < bands.length - 1) {
+      const atRight = reverse ? index % 2 === 1 : index % 2 === 0;
+      const connectorX = atRight ? mapSize - 2 : 0;
+      const nextBand = bands[index + 1];
+      carveGeneratedTileBlock(
+        activeTiles,
+        connectorX,
+        band.start,
+        2,
+        nextBand.start + nextBand.width - band.start,
+      );
+
+      if (Math.random() < 0.82) {
+        carveGeneratedTurnRoom(activeTiles, connectorX, band.start, 2, nextBand.start + nextBand.width - band.start);
+      }
+    }
+  }
+}
+
+function carveGeneratedVerticalSnake(activeTiles, bands, reverse) {
+  for (let index = 0; index < bands.length; index += 1) {
+    const band = bands[index];
+    carveGeneratedTileBlock(activeTiles, band.start, 0, band.width, mapSize);
+
+    if (index < bands.length - 1) {
+      const atBottom = reverse ? index % 2 === 1 : index % 2 === 0;
+      const connectorZ = atBottom ? mapSize - 2 : 0;
+      const nextBand = bands[index + 1];
+      carveGeneratedTileBlock(
+        activeTiles,
+        band.start,
+        connectorZ,
+        nextBand.start + nextBand.width - band.start,
+        2,
+      );
+
+      if (Math.random() < 0.82) {
+        carveGeneratedTurnRoom(activeTiles, band.start, connectorZ, nextBand.start + nextBand.width - band.start, 2);
+      }
+    }
+  }
+}
+
+function carveGeneratedTurnRoom(activeTiles, x, z, width, depth) {
+  const roomX = THREE.MathUtils.clamp(x + Math.floor(width / 2) - 2, 0, mapSize - 4);
+  const roomZ = THREE.MathUtils.clamp(z + Math.floor(depth / 2) - 2, 0, mapSize - 4);
+  carveGeneratedTileBlock(activeTiles, roomX, roomZ, 4, 4);
+}
+
+function getGeneratedSnakeEndpoint(band, horizontal, reverse, start) {
+  const edgeLow = 1.5;
+  const edgeHigh = mapSize - 1.5;
+  const along = start
+    ? (reverse ? edgeHigh : edgeLow)
+    : (reverse ? edgeLow : edgeHigh);
+  const cross = band.start + Math.floor(band.width / 2);
+
+  if (horizontal) {
+    return { x: along, z: cross + 0.5 };
+  }
+
+  return { x: cross + 0.5, z: along };
+}
+
+function carveGeneratedTileBlock(activeTiles, x, z, width, depth) {
+  for (let tileZ = z; tileZ < z + depth; tileZ += 1) {
+    for (let tileX = x; tileX < x + width; tileX += 1) {
+      if (tileX >= 0 && tileZ >= 0 && tileX < mapSize && tileZ < mapSize) {
+        activeTiles.add(tileKey(tileX, tileZ));
+      }
+    }
+  }
+}
+
+async function saveCurrentMapFloor() {
+  if (!isMapPlayerPlacementValid()) {
+    updateMapEditorControls();
+    return;
+  }
+
+  const floor = createMapFloorConfigFromEditor();
+  const nextIndex = Math.min(mapEditorState.activeFloorIndex, mapEditorState.floors.length);
+  if (nextIndex === mapEditorState.floors.length) {
+    mapEditorState.floors.push(floor);
+  } else {
+    mapEditorState.floors[nextIndex] = floor;
+  }
+
+  mapEditorState.activeFloorIndex = nextIndex;
+  mapEditorState.feedbackMessage = `Andar ${nextIndex + 1} salvo`;
+  mapEditorState.feedbackIsError = false;
+  mapEditorState.dirty = false;
+  renderFloorStack();
+  updateMapEditorControls();
+
+  try {
+    await persistAppliedMapConfig(createMapConfigPayloadFromFloors());
+  } catch (error) {
+    console.error("Falha ao salvar andar.", error);
+    mapEditorState.feedbackMessage = "Andar salvo; codigo nao salvo";
+    mapEditorState.feedbackIsError = true;
+    updateMapEditorControls();
+  }
+}
+
 function syncMapToolControls() {
   for (const button of mapToolButtons) {
     const isActive = button.dataset.mapTool === mapEditorState.activeTool;
     button.classList.toggle("is-active", isActive);
     button.setAttribute("aria-pressed", String(isActive));
+  }
+}
+
+function renderFloorStack() {
+  if (!floorStackElement) {
+    return;
+  }
+
+  floorStackElement.replaceChildren();
+  const newFloorButton = document.createElement("button");
+  newFloorButton.type = "button";
+  newFloorButton.className = "is-new-floor";
+  newFloorButton.setAttribute("aria-label", "Novo andar");
+  newFloorButton.textContent = "+";
+  newFloorButton.addEventListener("click", beginNewMapFloor);
+  floorStackElement.append(newFloorButton);
+
+  for (let index = 0; index < mapEditorState.floors.length; index += 1) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = String(index + 1);
+    button.setAttribute("aria-label", `Andar ${index + 1}`);
+    button.classList.toggle("is-active", index === mapEditorState.activeFloorIndex);
+    button.addEventListener("click", () => {
+      loadMapFloorIntoEditor(mapEditorState.floors[index], index);
+    });
+    floorStackElement.append(button);
   }
 }
 
@@ -3480,17 +3992,7 @@ function handleMapPointerDown(event) {
     return;
   }
 
-  if (mapEditorState.activeTool === "light") {
-    if (event.button === 2) {
-      setMapLightActive(tile, false);
-    } else if (event.button === 0) {
-      setMapLightActive(tile, true);
-    }
-
-    return;
-  }
-
-  if (mapEditorState.activeTool === "enemy") {
+  if (mapEditorState.activeTool === "enemy" || mapEditorState.activeTool === "boss") {
     if (event.button === 2) {
       removeMapEnemyAtPoint(point);
     } else if (event.button === 0) {
@@ -3610,30 +4112,7 @@ function setMapTileActive(tile, active) {
     mapEditorState.activeTiles.add(key);
   } else {
     mapEditorState.activeTiles.delete(key);
-    mapEditorState.lights.delete(key);
     mapEditorState.enemies = mapEditorState.enemies.filter((enemy) => tileKeyFromMapPoint(enemy) !== key);
-  }
-
-  markMapDirty();
-  renderMapEditor();
-  updateMapEditorControls();
-}
-
-function setMapLightActive(tile, active) {
-  const key = tileKey(tile.x, tile.z);
-  if (!mapEditorState.activeTiles.has(key)) {
-    return;
-  }
-
-  const hasLight = mapEditorState.lights.has(key);
-  if (active === hasLight) {
-    return;
-  }
-
-  if (active) {
-    mapEditorState.lights.add(key);
-  } else {
-    mapEditorState.lights.delete(key);
   }
 
   markMapDirty();
@@ -3649,7 +4128,7 @@ function beginMapEnemyPlacement(tile, point) {
 
   const position = { x: tile.x + 0.5, z: tile.z + 0.5 };
   mapEditorState.pendingDirection = {
-    kind: "enemy",
+    kind: mapEditorState.activeTool === "boss" ? "boss" : "enemy",
     position,
     direction: directionFromMapPoints(position, point, defaultMapDirection),
     mousePoint: point,
@@ -3690,11 +4169,15 @@ function commitMapPendingDirection(point) {
   const direction = directionFromMapPoints(pending.position, point, pending.direction);
   if (pending.kind === "player") {
     mapEditorState.playerDirection = direction;
-  } else if (pending.kind === "enemy") {
+  } else if (pending.kind === "enemy" || pending.kind === "boss") {
+    if (pending.kind === "boss") {
+      mapEditorState.enemies = mapEditorState.enemies.filter((enemy) => normalizeMapEnemyType(enemy.type) !== "boss");
+    }
     mapEditorState.enemies.push({
       x: roundMapCoordinate(pending.position.x),
       z: roundMapCoordinate(pending.position.z),
       direction,
+      type: pending.kind === "boss" ? "boss" : "skeleton",
     });
   }
 
@@ -3745,11 +4228,7 @@ function cursorForMapTool() {
     return "alias";
   }
 
-  if (mapEditorState.activeTool === "light") {
-    return "copy";
-  }
-
-  if (mapEditorState.activeTool === "enemy") {
+  if (mapEditorState.activeTool === "enemy" || mapEditorState.activeTool === "boss") {
     return "cell";
   }
 
@@ -3909,7 +4388,6 @@ function drawMapEditor(ctx, size) {
 
   drawMapLines(ctx, size, cellSize);
   drawMapWallPreview(ctx, cellSize);
-  drawMapLights(ctx, cellSize);
   drawMapEnemies(ctx, cellSize);
   drawMapHover(ctx, cellSize);
   drawMapPendingDirection(ctx, cellSize);
@@ -3975,39 +4453,44 @@ function drawMapWallPreview(ctx, cellSize) {
   }
 }
 
-function drawMapLights(ctx, cellSize) {
-  for (const key of mapEditorState.lights) {
-    const tile = parseTileKey(key);
-    const px = (tile.x + 0.5) * cellSize;
-    const py = (tile.z + 0.5) * cellSize;
-    const radius = THREE.MathUtils.clamp(cellSize * 0.18, 4, 10);
-
-    ctx.save();
-    ctx.shadowColor = "rgba(255, 218, 107, 0.72)";
-    ctx.shadowBlur = Math.max(8, cellSize * 0.42);
-    ctx.fillStyle = "#f2cf62";
-    ctx.beginPath();
-    ctx.arc(px, py, radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = "#fff5bd";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.fillStyle = "#735d25";
-    ctx.fillRect(px - radius * 0.35, py + radius * 0.78, radius * 0.7, radius * 0.42);
-    ctx.restore();
+function drawMapEnemies(ctx, cellSize) {
+  for (const enemy of mapEditorState.enemies) {
+    drawMapEnemyIcon(ctx, cellSize, enemy);
   }
 }
 
-function drawMapEnemies(ctx, cellSize) {
-  for (const enemy of mapEditorState.enemies) {
-    drawMapActor(ctx, cellSize, enemy, {
-      fill: "#38b66b",
-      stroke: "#c8ffd8",
-      line: "#153d24",
-      radiusScale: 0.24,
-    });
-  }
+function drawMapEnemyIcon(ctx, cellSize, enemy) {
+  const isBoss = normalizeMapEnemyType(enemy.type) === "boss";
+  const px = enemy.x * cellSize;
+  const py = enemy.z * cellSize;
+  const radius = THREE.MathUtils.clamp(cellSize * (isBoss ? 0.29 : 0.24), 6, 16);
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0, 0, 0, 0.62)";
+  ctx.shadowBlur = 8;
+  ctx.fillStyle = isBoss ? "#e4b83a" : "#f3efe1";
+  ctx.strokeStyle = isBoss ? "#fff1a8" : "#c8ffd8";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(px, py - radius * 0.08, radius, Math.PI * 0.08, Math.PI * 0.92, true);
+  ctx.lineTo(px - radius * 0.72, py + radius * 0.78);
+  ctx.lineTo(px + radius * 0.72, py + radius * 0.78);
+  ctx.closePath();
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.stroke();
+  ctx.fillStyle = "#10110f";
+  ctx.beginPath();
+  ctx.ellipse(px - radius * 0.34, py - radius * 0.12, radius * 0.18, radius * 0.24, -0.2, 0, Math.PI * 2);
+  ctx.ellipse(px + radius * 0.34, py - radius * 0.12, radius * 0.18, radius * 0.24, 0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillRect(px - radius * 0.36, py + radius * 0.45, radius * 0.72, Math.max(1, radius * 0.12));
+  drawFacingMarker(ctx, cellSize, enemy, enemy.direction, {
+    color: "#11120f",
+    lengthScale: isBoss ? 0.5 : 0.42,
+    width: Math.max(2, radius * 0.18),
+  });
+  ctx.restore();
 }
 
 function drawMapHover(ctx, cellSize) {
@@ -4037,14 +4520,18 @@ function drawMapPendingDirection(ctx, cellSize) {
   ctx.save();
   ctx.setLineDash([5, 5]);
   ctx.lineWidth = 2;
-  ctx.strokeStyle = pending.kind === "enemy" ? "rgba(128, 255, 170, 0.8)" : "rgba(255, 216, 161, 0.85)";
+  ctx.strokeStyle = pending.kind === "boss"
+    ? "rgba(228, 184, 58, 0.9)"
+    : pending.kind === "enemy"
+      ? "rgba(128, 255, 170, 0.8)"
+      : "rgba(255, 216, 161, 0.85)";
   ctx.beginPath();
   ctx.moveTo(originX, originY);
   ctx.lineTo(targetX, targetY);
   ctx.stroke();
   ctx.setLineDash([]);
   drawFacingMarker(ctx, cellSize, pending.position, pending.direction, {
-    color: pending.kind === "enemy" ? "#c8ffd8" : "#ffd8a1",
+    color: pending.kind === "boss" ? "#e4b83a" : pending.kind === "enemy" ? "#c8ffd8" : "#ffd8a1",
     lengthScale: 0.56,
     width: 3,
   });
@@ -4113,11 +4600,16 @@ async function applyMapEditorState() {
   mapEditorState.appliedTiles = cloneTileSet(mapEditorState.activeTiles);
   mapEditorState.appliedPlayerPosition = { ...mapEditorState.playerPosition };
   mapEditorState.appliedPlayerDirection = mapEditorState.playerDirection;
-  mapEditorState.appliedLights = cloneTileSet(mapEditorState.lights);
   mapEditorState.appliedEnemies = cloneMapEnemies(mapEditorState.enemies);
   mapEditorState.appliedMaterials = { ...mapEditorState.materials };
   mapEditorState.appliedShowTileEdges = mapEditorState.showTileEdges;
   mapEditorState.appliedIsCovered = mapEditorState.isCovered;
+  const appliedFloor = createMapFloorConfigFromEditor({ applied: true });
+  if (mapEditorState.activeFloorIndex >= 0 && mapEditorState.activeFloorIndex < mapEditorState.floors.length) {
+    mapEditorState.floors[mapEditorState.activeFloorIndex] = appliedFloor;
+  } else if (mapEditorState.activeFloorIndex === mapEditorState.floors.length) {
+    mapEditorState.floors.push(appliedFloor);
+  }
   mapEditorState.pendingDirection = null;
   mapCanvas.classList.remove("is-picking-direction");
   mapEditorState.dirty = false;
@@ -4134,7 +4626,7 @@ async function applyMapEditorState() {
   updateMapEditorControls();
 
   try {
-    await persistAppliedMapConfig();
+    await persistAppliedMapConfig(createAppliedMapConfigPayload());
     mapEditorState.feedbackMessage = "Mapa aplicado e salvo";
     mapEditorState.feedbackIsError = false;
   } catch (error) {
@@ -4147,7 +4639,7 @@ async function applyMapEditorState() {
   }
 }
 
-async function persistAppliedMapConfig() {
+async function persistAppliedMapConfig(payload = createAppliedMapConfigPayload()) {
   if (runtimeIsStaticHosted) {
     return;
   }
@@ -4157,7 +4649,7 @@ async function persistAppliedMapConfig() {
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(createAppliedMapConfigPayload()),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
@@ -4166,32 +4658,29 @@ async function persistAppliedMapConfig() {
 }
 
 function createAppliedMapConfigPayload() {
+  const appliedFloor = createMapFloorConfigFromEditor({ applied: true });
+  const floors = [...mapEditorState.floors];
+  if (mapEditorState.activeFloorIndex >= 0 && mapEditorState.activeFloorIndex < floors.length) {
+    floors[mapEditorState.activeFloorIndex] = appliedFloor;
+  } else if (mapEditorState.activeFloorIndex === floors.length) {
+    floors.push(appliedFloor);
+  }
+
+  return createMapConfigPayloadFromFloors(floors, Math.min(mapEditorState.activeFloorIndex, floors.length - 1), appliedFloor);
+}
+
+function createMapConfigPayloadFromFloors(
+  floors = mapEditorState.floors,
+  currentFloor = mapEditorState.activeFloorIndex,
+  fallbackFloor = createMapFloorConfigFromEditor(),
+) {
+  const normalizedFloors = floors.length ? floors : [fallbackFloor];
+  const selectedFloor = normalizedFloors[Math.max(0, Math.min(currentFloor, normalizedFloors.length - 1))] || fallbackFloor;
+
   return {
-    tiles: [...mapEditorState.appliedTiles]
-      .map((key) => {
-        const tile = parseTileKey(key);
-        return [tile.x, tile.z];
-      })
-      .sort((a, b) => a[1] - b[1] || a[0] - b[0]),
-    playerPosition: {
-      x: roundMapCoordinate(mapEditorState.appliedPlayerPosition.x),
-      z: roundMapCoordinate(mapEditorState.appliedPlayerPosition.z),
-    },
-    playerDirection: mapEditorState.appliedPlayerDirection,
-    lights: [...mapEditorState.appliedLights]
-      .map((key) => {
-        const tile = parseTileKey(key);
-        return [tile.x, tile.z];
-      })
-      .sort((a, b) => a[1] - b[1] || a[0] - b[0]),
-    enemies: cloneMapEnemies(mapEditorState.appliedEnemies)
-      .sort((a, b) => a.z - b.z || a.x - b.x)
-      .map((enemy) => ({
-        x: roundMapCoordinate(enemy.x),
-        z: roundMapCoordinate(enemy.z),
-        direction: normalizeMapDirection(enemy.direction),
-      })),
-    materials: { ...mapEditorState.appliedMaterials },
+    ...selectedFloor,
+    floors: normalizedFloors.map((floor) => ({ ...floor, enemies: cloneMapEnemies(floor.enemies) })),
+    currentFloor: Math.max(0, Math.min(currentFloor, normalizedFloors.length - 1)),
     showTileEdges: false,
     isCovered: true,
   };
@@ -4223,8 +4712,11 @@ function updateMapEditorControls() {
 
   const hasTiles = mapEditorState.activeTiles.size > 0;
   const validPlacement = isMapPlayerPlacementValid();
-  mapStatus.textContent = `${mapEditorState.activeTiles.size} tiles`;
+  mapStatus.textContent = `Andar ${mapEditorState.activeFloorIndex + 1} / ${mapEditorState.activeTiles.size} tiles`;
   applyMapButton.disabled = mapEditorState.persisting || !hasTiles || !validPlacement || Boolean(mapEditorState.pendingDirection);
+  if (saveFloorButton) {
+    saveFloorButton.disabled = mapEditorState.persisting || !hasTiles || !validPlacement || Boolean(mapEditorState.pendingDirection);
+  }
   mapFeedback.classList.toggle("is-error", !hasTiles || !validPlacement || mapEditorState.feedbackIsError);
   showTileEdgesInput.checked = mapEditorState.showTileEdges;
   showTileEdgesValue.textContent = mapEditorState.showTileEdges ? "Sim" : "Nao";
@@ -4247,11 +4739,12 @@ function updateMapEditorControls() {
 
   mapZoomOutButton.disabled = mapEditorState.zoom <= mapZoomMin + 0.001;
   mapZoomInButton.disabled = mapEditorState.zoom >= mapZoomMax - 0.001;
+  renderFloorStack();
 }
 
 function updateMapHud() {
   if (mapHudElement) {
-    mapHudElement.textContent = `${mapSize} x ${mapSize} / ${mapEditorState.appliedTiles.size} tiles`;
+    mapHudElement.textContent = `F${mapEditorState.activeFloorIndex + 1} / ${mapSize} x ${mapSize} / ${mapEditorState.appliedTiles.size} tiles`;
   }
 }
 
@@ -4300,6 +4793,7 @@ function positionCharacterOnMap(position, direction = mapEditorState.appliedPlay
 function renderAppliedEnemies() {
   clearAppliedEnemies();
   clearImpactEffects();
+  clearAmmoPickups();
 
   if (!enemySourceModel || mapEditorState.appliedEnemies.length === 0) {
     return;
@@ -4314,9 +4808,15 @@ function renderAppliedEnemies() {
     enemyModel.position.x += worldPosition.x;
     enemyModel.position.z += worldPosition.z;
     enemyModel.rotation.y = directionToYaw(enemy.direction);
-    enemyModel.name = "Skeleton";
+    const enemyType = normalizeMapEnemyType(enemy.type);
+    if (enemyType === "boss") {
+      enemyModel.scale.multiplyScalar(bossScaleMultiplier);
+      groundEnemyModel(enemyModel);
+    }
+    enemyModel.name = enemyType === "boss" ? "SkeletonBoss" : "Skeleton";
     prepareStaticModel(enemyModel);
     const enemyRuntime = createEnemyRuntime(enemyModel, enemy, index);
+    createEnemyHealthBar(enemyRuntime);
     enemyModel.traverse((node) => {
       node.userData.enemyRuntime = enemyRuntime;
     });
@@ -4332,7 +4832,10 @@ function clearAppliedEnemies() {
     enemy.mixer?.stopAllAction();
   }
 
+  clearEnemyCombatIndicators();
   activeEnemies = [];
+  stageFlowState = createStageFlowState();
+  hideStageBanner();
 
   if (enemyGroup) {
     scene.remove(enemyGroup);
@@ -4341,9 +4844,11 @@ function clearAppliedEnemies() {
 }
 
 function createEnemyRuntime(model, mapEnemy, index) {
-  const spawnKind = pickEnemySpawnKind();
+  const type = normalizeMapEnemyType(mapEnemy.type);
+  const isBoss = type === "boss";
   const enemy = {
     id: index,
+    type,
     model,
     mapEnemy,
     mixer: new THREE.AnimationMixer(model),
@@ -4353,14 +4858,12 @@ function createEnemyRuntime(model, mapEnemy, index) {
     state: "idle",
     stateTimer: 0,
     stateElapsed: 0,
-    health: enemyMaxHealth,
-    maxHealth: enemyMaxHealth,
+    health: enemyMaxHealth * (isBoss ? bossHealthMultiplier : 1),
+    maxHealth: enemyMaxHealth * (isBoss ? bossHealthMultiplier : 1),
     halfHealthHandled: false,
     canHalfHealthFall: Math.random() < enemyHalfHealthFallChance,
-    spawnKind,
-    specialSpawnGround: spawnKind === "spawn-ground",
-    transformed: false,
-    attackDamage: enemyAttackDamage,
+    speedMultiplier: isBoss ? bossSpeedMultiplier : 1,
+    attackDamage: enemyAttackDamage * (isBoss ? bossAttackDamageMultiplier : 1),
     attackCooldown: Math.random() * 0.65,
     attackHitApplied: false,
     hitReactTimer: 0,
@@ -4371,13 +4874,272 @@ function createEnemyRuntime(model, mapEnemy, index) {
     mixerUpdateTimer: Math.random() * performanceProfile.enemyFarMixerInterval,
     lineOfSightTimer: Math.random() * performanceProfile.enemyLosInterval,
     lineOfSightResult: false,
-    active: true,
+    active: !isBoss,
+    spawned: !isBoss,
   };
 
   setupEnemyAnimationActions(enemy);
-  startEnemySpawnAnimation(enemy);
-  enemy.mixer.update(0.001);
+  if (isBoss) {
+    model.visible = false;
+  } else {
+    startEnemySpawnAnimation(enemy);
+    enemy.mixer.update(0.001);
+  }
   return enemy;
+}
+
+function createEnemyHealthBar(enemy) {
+  if (!enemyGroup) {
+    return;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = enemyHealthBarCanvasWidth;
+  canvas.height = enemyHealthBarCanvasHeight;
+  const context = canvas.getContext("2d");
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.name = enemy.type === "boss" ? "BossHealthBar" : "EnemyHealthBar";
+  sprite.frustumCulled = false;
+  sprite.renderOrder = 30;
+  sprite.visible = false;
+
+  enemy.healthBar = {
+    sprite,
+    canvas,
+    context,
+    texture,
+    material,
+    lastHealthRatio: -1,
+  };
+
+  enemyGroup.add(sprite);
+  updateEnemyHealthBar(enemy);
+}
+
+function updateEnemyCombatIndicators(delta) {
+  updateEnemyHealthBars();
+  updateEnemyDamageNumbers(delta);
+}
+
+function updateEnemyHealthBars() {
+  for (const enemy of activeEnemies) {
+    updateEnemyHealthBar(enemy);
+  }
+}
+
+function updateEnemyHealthBar(enemy) {
+  const bar = enemy.healthBar;
+  if (!bar) {
+    return;
+  }
+
+  const visible = Boolean(
+    enemy.model.visible
+      && enemy.health > 0
+      && enemy.state !== "dead"
+      && enemy.state !== "dying",
+  );
+  bar.sprite.visible = visible;
+  if (!visible) {
+    return;
+  }
+
+  const healthRatio = THREE.MathUtils.clamp(enemy.health / Math.max(enemy.maxHealth, 1), 0, 1);
+  const roundedRatio = Math.round(healthRatio * 100) / 100;
+  if (roundedRatio !== bar.lastHealthRatio) {
+    drawEnemyHealthBar(bar, healthRatio);
+    bar.lastHealthRatio = roundedRatio;
+  }
+
+  const width = enemy.type === "boss" ? enemyHealthBarBossWidth : enemyHealthBarNormalWidth;
+  bar.sprite.scale.set(width, enemyHealthBarHeight, 1);
+  bar.sprite.position.set(
+    enemy.model.position.x,
+    enemy.model.position.y + enemy.hitbox.maxY + enemyHealthBarVerticalPadding,
+    enemy.model.position.z,
+  );
+}
+
+function drawEnemyHealthBar(bar, healthRatio) {
+  const { context } = bar;
+  const width = enemyHealthBarCanvasWidth;
+  const height = enemyHealthBarCanvasHeight;
+  const trackX = 8;
+  const trackY = 7;
+  const trackWidth = width - trackX * 2;
+  const trackHeight = height - trackY * 2;
+
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = "rgba(16, 3, 3, 0.82)";
+  context.fillRect(0, 0, width, height);
+  context.fillStyle = "rgba(70, 8, 8, 0.9)";
+  context.fillRect(trackX, trackY, trackWidth, trackHeight);
+  context.fillStyle = getEnemyHealthBarFillColor(healthRatio);
+  context.fillRect(trackX, trackY, Math.max(1, trackWidth * healthRatio), trackHeight);
+  context.strokeStyle = "rgba(255, 236, 173, 0.86)";
+  context.lineWidth = 2;
+  context.strokeRect(trackX + 1, trackY + 1, trackWidth - 2, trackHeight - 2);
+  bar.texture.needsUpdate = true;
+}
+
+function getEnemyHealthBarFillColor(healthRatio) {
+  if (healthRatio <= 0.25) {
+    return "#ff3434";
+  }
+
+  if (healthRatio <= 0.5) {
+    return "#ffd84d";
+  }
+
+  return "#d92f2f";
+}
+
+function spawnEnemyDamageNumber(enemy, amount, { headshot = false, point = null } = {}) {
+  if (!enemy?.model?.visible) {
+    return;
+  }
+
+  const { sprite, texture, material } = createDamageNumberSprite(amount, headshot);
+  const origin = damageNumberPosition;
+  if (point) {
+    origin.copy(point);
+  } else {
+    origin.set(
+      enemy.model.position.x,
+      enemy.model.position.y + enemy.hitbox.maxY * 0.72,
+      enemy.model.position.z,
+    );
+  }
+
+  damageNumberCameraOffset.copy(camera.position).sub(origin);
+  if (damageNumberCameraOffset.lengthSq() > 0.001) {
+    damageNumberCameraOffset.normalize();
+    origin.addScaledVector(damageNumberCameraOffset, 0.28);
+  }
+
+  origin.x += (Math.random() - 0.5) * 0.22;
+  origin.y += headshot ? 0.28 : 0.12;
+  origin.z += (Math.random() - 0.5) * 0.22;
+
+  const baseWidth = headshot ? 0.76 : 0.58;
+  const baseHeight = baseWidth * (damageNumberCanvasHeight / damageNumberCanvasWidth);
+  sprite.position.copy(origin);
+  sprite.scale.set(baseWidth, baseHeight, 1);
+  scene.add(sprite);
+
+  activeDamageNumbers.push({
+    sprite,
+    texture,
+    material,
+    age: 0,
+    duration: damageNumberDuration,
+    startPosition: origin.clone(),
+    drift: new THREE.Vector3(
+      (Math.random() - 0.5) * 0.34,
+      damageNumberRise,
+      (Math.random() - 0.5) * 0.34,
+    ),
+    baseScale: sprite.scale.clone(),
+  });
+}
+
+function createDamageNumberSprite(amount, headshot) {
+  const canvas = document.createElement("canvas");
+  canvas.width = damageNumberCanvasWidth;
+  canvas.height = damageNumberCanvasHeight;
+  const context = canvas.getContext("2d");
+  const text = String(Math.round(amount));
+  const color = headshot ? "#ff3434" : "#ffd84d";
+
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.font = `800 ${headshot ? 48 : 42}px Arial, sans-serif`;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.lineJoin = "round";
+  context.strokeStyle = "rgba(0, 0, 0, 0.88)";
+  context.lineWidth = headshot ? 9 : 8;
+  context.strokeText(text, canvas.width / 2, canvas.height / 2);
+  context.fillStyle = color;
+  context.fillText(text, canvas.width / 2, canvas.height / 2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.name = headshot ? "HeadshotDamageNumber" : "BodyDamageNumber";
+  sprite.frustumCulled = false;
+  sprite.renderOrder = 40;
+
+  return { sprite, texture, material };
+}
+
+function updateEnemyDamageNumbers(delta) {
+  for (let index = activeDamageNumbers.length - 1; index >= 0; index -= 1) {
+    const number = activeDamageNumbers[index];
+    number.age += delta;
+    const progress = THREE.MathUtils.clamp(number.age / number.duration, 0, 1);
+    const easedProgress = 1 - ((1 - progress) * (1 - progress));
+    const fade = 1 - progress;
+
+    number.sprite.position.copy(number.startPosition).addScaledVector(number.drift, easedProgress);
+    number.sprite.scale.copy(number.baseScale).multiplyScalar(1 + Math.sin(progress * Math.PI) * 0.18);
+    number.material.opacity = fade;
+
+    if (progress >= 1) {
+      activeDamageNumbers.splice(index, 1);
+      disposeDamageNumber(number);
+    }
+  }
+}
+
+function disposeDamageNumber(number) {
+  number.sprite.removeFromParent();
+  number.texture.dispose();
+  number.material.dispose();
+}
+
+function clearEnemyCombatIndicators() {
+  for (const enemy of activeEnemies) {
+    disposeEnemyHealthBar(enemy);
+  }
+
+  for (const number of activeDamageNumbers) {
+    disposeDamageNumber(number);
+  }
+  activeDamageNumbers = [];
+}
+
+function disposeEnemyHealthBar(enemy) {
+  const bar = enemy.healthBar;
+  if (!bar) {
+    return;
+  }
+
+  bar.sprite.removeFromParent();
+  bar.texture.dispose();
+  bar.material.dispose();
+  enemy.healthBar = null;
 }
 
 function createEnemyHitboxMetrics(model) {
@@ -4386,10 +5148,10 @@ function createEnemyHitboxMetrics(model) {
     return {
       minY: 0,
       maxY: 4.4,
-      headMinY: 3.05,
+      headMinY: 2.9,
       eyeOffsetY: 3,
       bodyRadius: enemyCollisionRadius,
-      headRadius: enemyCollisionRadius * 0.48,
+      headRadius: enemyCollisionRadius * 0.56,
     };
   }
 
@@ -4402,28 +5164,11 @@ function createEnemyHitboxMetrics(model) {
   return {
     minY,
     maxY,
-    headMinY: minY + height * 0.72,
+    headMinY: minY + height * 0.66,
     eyeOffsetY: minY + height * 0.68,
     bodyRadius: radius,
-    headRadius: Math.max(radius * 0.52, enemyCollisionRadius * 0.34),
+    headRadius: Math.max(radius * 0.62, enemyCollisionRadius * 0.38),
   };
-}
-
-function pickEnemySpawnKind() {
-  const roll = Math.random();
-  if (roll < enemySpawnGroundChance) {
-    return "spawn-ground";
-  }
-
-  if (roll < enemySpawnGroundChance + enemyAwakenFloorLongChance) {
-    return "awaken-floor-long";
-  }
-
-  if (roll < enemySpawnGroundChance + enemyAwakenFloorLongChance + enemyAwakenFloorChance) {
-    return "awaken-floor";
-  }
-
-  return "idle";
 }
 
 function setupEnemyAnimationActions(enemy) {
@@ -4453,22 +5198,20 @@ function configureEnemyAction(action, clipName) {
 }
 
 function startEnemySpawnAnimation(enemy) {
-  if (enemy.spawnKind === "spawn-ground") {
-    startEnemyTimedState(enemy, "awakening", "Skeletons_Spawn_Ground", 1.6);
-    return;
+  if (!setEnemyLoopState(enemy, "idle", "Skeletons_Idle", { restart: true })) {
+    console.warn("Animacao Skeletons_Idle nao encontrada para inimigo.");
   }
+}
 
-  if (enemy.spawnKind === "awaken-floor-long") {
-    startEnemyTimedState(enemy, "awakening", "Skeletons_Awaken_Floor_Long", 2.2);
-    return;
-  }
-
-  if (enemy.spawnKind === "awaken-floor") {
-    startEnemyTimedState(enemy, "awakening", "Skeletons_Awaken_Floor", 1.5);
-    return;
-  }
-
-  setEnemyLoopState(enemy, "idle", "Skeletons_Idle");
+function createStageFlowState() {
+  return {
+    bossCountdownActive: false,
+    bossCountdown: 0,
+    clearActive: false,
+    clearTimer: 0,
+    bannerTimer: 0,
+    floorComplete: false,
+  };
 }
 
 function updateEnemies(delta) {
@@ -4477,6 +5220,10 @@ function updateEnemies(delta) {
   }
 
   for (const enemy of activeEnemies) {
+    if (!enemy.active && !isEnemyTimedState(enemy.state)) {
+      continue;
+    }
+
     refreshEnemyDistanceToPlayer(enemy);
     updateEnemyMixer(enemy, delta);
 
@@ -4488,6 +5235,128 @@ function updateEnemies(delta) {
     updateEnemyState(enemy, delta);
     updateEnemyHitFeedback(enemy, delta);
   }
+}
+
+function updateStageFlow(delta) {
+  if (stageFlowState.bannerTimer > 0) {
+    stageFlowState.bannerTimer = Math.max(0, stageFlowState.bannerTimer - delta);
+    if (stageFlowState.bannerTimer <= 0 && !stageFlowState.bossCountdownActive && !stageFlowState.clearActive) {
+      hideStageBanner();
+    }
+  }
+
+  if (playerControlState.dead) {
+    return;
+  }
+
+  if (!activeEnemies.length) {
+    if (enemySourceModel && mapEditorState.appliedEnemies.length === 0) {
+      startStageClear();
+    }
+    return;
+  }
+
+  if (stageFlowState.floorComplete) {
+    return;
+  }
+
+  if (stageFlowState.clearActive) {
+    stageFlowState.clearTimer -= delta;
+    if (stageFlowState.clearTimer <= 0) {
+      advanceToNextFloor();
+    }
+    return;
+  }
+
+  if (stageFlowState.bossCountdownActive) {
+    stageFlowState.bossCountdown = Math.max(0, stageFlowState.bossCountdown - delta);
+    showStageBanner(String(Math.max(1, Math.ceil(stageFlowState.bossCountdown))), { countdown: true });
+    if (stageFlowState.bossCountdown <= 0) {
+      stageFlowState.bossCountdownActive = false;
+      spawnPendingBosses();
+    }
+    return;
+  }
+
+  const hasAliveSkeleton = activeEnemies.some((enemy) => enemy.type !== "boss" && enemy.active);
+  const pendingBosses = activeEnemies.filter((enemy) => enemy.type === "boss" && !enemy.spawned);
+  if (!hasAliveSkeleton && pendingBosses.length > 0) {
+    stageFlowState.bossCountdownActive = true;
+    stageFlowState.bossCountdown = bossSpawnCountdownSeconds;
+    showStageBanner(String(bossSpawnCountdownSeconds), { countdown: true });
+    return;
+  }
+
+  const hasActiveEnemy = activeEnemies.some((enemy) => enemy.active || (enemy.type === "boss" && !enemy.spawned));
+  if (!hasActiveEnemy) {
+    startStageClear();
+  }
+}
+
+function spawnPendingBosses() {
+  for (const enemy of activeEnemies) {
+    if (enemy.type !== "boss" || enemy.spawned) {
+      continue;
+    }
+
+    enemy.spawned = true;
+    enemy.active = true;
+    enemy.model.visible = true;
+    enemy.mixerUpdateAccumulator = 0;
+    enemy.mixerUpdateTimer = 0;
+
+    if (enemy.actions.has("Skeletons_Spawn_Ground")) {
+      startEnemyTimedState(enemy, "spawning", "Skeletons_Spawn_Ground", 1.6);
+    } else {
+      setEnemyLoopState(enemy, "idle", "Skeletons_Idle", { restart: true });
+    }
+
+    enemy.mixer.update(0.001);
+  }
+}
+
+function startStageClear() {
+  if (stageFlowState.clearActive || stageFlowState.floorComplete) {
+    return;
+  }
+
+  stageFlowState.clearActive = true;
+  stageFlowState.clearTimer = 2.2;
+  showStageBanner("FLOOR CLEAR");
+}
+
+function advanceToNextFloor() {
+  stageFlowState.clearActive = false;
+  const nextFloorIndex = mapEditorState.activeFloorIndex + 1;
+  if (nextFloorIndex < mapEditorState.floors.length) {
+    loadMapFloorIntoEditor(mapEditorState.floors[nextFloorIndex], nextFloorIndex);
+    showStageBanner(`FLOOR ${nextFloorIndex + 1}`, { duration: 1.6 });
+    return;
+  }
+
+  showStageBanner("FLOOR CLEAR", { duration: 0 });
+  stageFlowState.floorComplete = true;
+}
+
+function showStageBanner(message, { countdown = false, duration = 0 } = {}) {
+  if (!stageBannerElement) {
+    return;
+  }
+
+  stageBannerElement.textContent = message;
+  stageBannerElement.hidden = false;
+  stageBannerElement.classList.toggle("is-countdown", countdown);
+  stageFlowState.bannerTimer = duration;
+}
+
+function hideStageBanner() {
+  if (!stageBannerElement) {
+    return;
+  }
+
+  stageBannerElement.hidden = true;
+  stageBannerElement.classList.remove("is-countdown");
+  stageBannerElement.textContent = "";
 }
 
 function updateEnemyMixer(enemy, delta) {
@@ -4573,17 +5442,21 @@ function updateEnemyHitFeedback(enemy, delta) {
 }
 
 function isEnemyTimedState(state) {
-  return state === "awakening"
+  return state === "spawning"
     || state === "falling"
     || state === "downed"
     || state === "resurrecting"
-    || state === "transforming"
     || state === "dying";
 }
 
 function updateEnemyTimedState(enemy, delta) {
   enemy.stateElapsed += delta;
   enemy.stateTimer -= delta;
+
+  if (enemy.state === "spawning" && enemy.stateTimer <= 0) {
+    setEnemyLoopState(enemy, "idle", "Skeletons_Idle", { restart: true });
+    return;
+  }
 
   if (enemy.state === "falling" && enemy.stateTimer <= 0) {
     startEnemyDownedState(enemy);
@@ -4601,10 +5474,7 @@ function updateEnemyTimedState(enemy, delta) {
     return;
   }
 
-  if (
-    (enemy.state === "awakening" || enemy.state === "resurrecting" || enemy.state === "transforming") &&
-    enemy.stateTimer <= 0
-  ) {
+  if (enemy.state === "resurrecting" && enemy.stateTimer <= 0) {
     setEnemyLoopState(enemy, "idle", "Skeletons_Idle", { restart: true });
   }
 }
@@ -4618,14 +5488,14 @@ function startEnemyDownedState(enemy) {
 
 function setEnemyLoopState(enemy, state, clipName, options = {}) {
   if (enemy.state === state && !options.restart) {
-    return;
+    return true;
   }
 
   enemy.state = state;
   enemy.stateTimer = 0;
   enemy.stateElapsed = 0;
   enemy.attackHitApplied = false;
-  playEnemyAnimation(enemy, clipName, { loop: true, restart: options.restart });
+  return playEnemyAnimation(enemy, clipName, { loop: true, restart: options.restart });
 }
 
 function startEnemyTimedState(enemy, state, clipName, fallbackDuration) {
@@ -4656,12 +5526,14 @@ function playEnemyAnimation(enemy, clipName, { loop = false, restart = false } =
 
   action.enabled = true;
   action.paused = false;
-  action.reset().setEffectiveWeight(1).fadeIn(0.12).play();
+  action.reset().setEffectiveWeight(1);
 
   if (enemy.activeAction && enemy.activeAction !== action) {
+    action.fadeIn(0.12);
     enemy.activeAction.fadeOut(0.12);
   }
 
+  action.play();
   enemy.activeAction = action;
   enemy.activeClipName = clipName;
   return true;
@@ -4756,21 +5628,9 @@ function handleEnemyShotDamageThreshold(enemy, previousHealth) {
 
   enemy.halfHealthHandled = true;
 
-  if (enemy.specialSpawnGround && !enemy.transformed) {
-    transformEnemy(enemy);
-    return;
-  }
-
   if (enemy.canHalfHealthFall) {
     knockDownEnemy(enemy);
   }
-}
-
-function transformEnemy(enemy) {
-  enemy.transformed = true;
-  enemy.health = enemy.maxHealth;
-  enemy.attackDamage = enemyAttackDamage * 2;
-  startEnemyTimedState(enemy, "transforming", "EXPERIMENTAL_Medium_Transform", 1.4);
 }
 
 function knockDownEnemy(enemy) {
@@ -4780,6 +5640,7 @@ function knockDownEnemy(enemy) {
 function killEnemy(enemy) {
   enemy.health = 0;
   enemy.active = false;
+  trySpawnAmmoDrop(enemy);
   startEnemyTimedState(enemy, "dying", "Skeletons_Death", 1.1);
 }
 
@@ -4910,7 +5771,7 @@ function moveEnemyTowardPlayer(enemy, delta, distanceToPlayer) {
   }
 
   enemyMoveDirection.normalize();
-  const step = Math.min(enemyWalkSpeed * delta, Math.max(0, distanceToPlayer - enemyAttackRange * 0.78));
+  const step = Math.min(enemyWalkSpeed * (enemy.speedMultiplier || 1) * delta, Math.max(0, distanceToPlayer - enemyAttackRange * 0.78));
   enemyNextPosition.copy(enemy.model.position).addScaledVector(enemyMoveDirection, step);
   moveEnemyWithCollision(enemy, enemyNextPosition.x, enemyNextPosition.z);
 }
@@ -6055,7 +6916,6 @@ function createPlatform(mapSnapshot) {
   const seams = mapSnapshot.showTileEdges ? createPlatformSeamLines(mapSnapshot.activeTiles) : null;
   const walls = mapSnapshot.isCovered ? createPlatformWalls(mapSnapshot.activeTiles, materialSelection.wall) : null;
   const ceiling = mapSnapshot.isCovered ? createPlatformCeiling(mapSnapshot.activeTiles, materialSelection.ceiling) : null;
-  const lights = mapSnapshot.isCovered ? createSewerStageLights(mapSnapshot) : null;
 
   if (floor) {
     platform.add(floor);
@@ -6071,10 +6931,6 @@ function createPlatform(mapSnapshot) {
 
   if (ceiling) {
     platform.add(ceiling);
-  }
-
-  if (lights) {
-    platform.add(lights);
   }
 
   return platform;
@@ -6259,65 +7115,6 @@ function configureShadowMesh(mesh, { cast = true, receive = true } = {}) {
   mesh.castShadow = Boolean(cast && performanceProfile.shadowsEnabled);
   mesh.receiveShadow = Boolean(receive && performanceProfile.shadowsEnabled);
   return mesh;
-}
-
-function configureSewerLightShadow(light, {
-  mapSize = 1024,
-  near = 0.2,
-  far = sewerDownLightDistance,
-  bias = -0.0002,
-  normalBias = 0.035,
-} = {}) {
-  light.castShadow = true;
-  light.shadow.mapSize.set(mapSize, mapSize);
-  light.shadow.camera.near = near;
-  light.shadow.camera.far = far;
-  light.shadow.bias = bias;
-  light.shadow.normalBias = normalBias;
-  light.shadow.camera.updateProjectionMatrix?.();
-  return light;
-}
-
-function getSewerShadowLightLimit() {
-  if (!performanceProfile.shadowsEnabled || !renderer.shadowMap.enabled) {
-    return 0;
-  }
-
-  const maxTextureUnits = renderer.capabilities?.maxTextures ?? 16;
-  const availableShadowUnits = maxTextureUnits - sewerReservedFragmentTextureUnits;
-  return Math.max(0, Math.min(performanceProfile.maxShadowSpotLights, availableShadowUnits));
-}
-
-function createSewerShadowLightIndexSet(lightTiles, focalPoint = null) {
-  const shadowLightLimit = getSewerShadowLightLimit();
-  return selectLightIndexesByDistance(lightTiles, focalPoint, shadowLightLimit);
-}
-
-function createSewerRuntimeLightIndexSet(lightTiles, focalPoint = null) {
-  return selectLightIndexesByDistance(lightTiles, focalPoint, performanceProfile.maxStageDynamicLights);
-}
-
-function selectLightIndexesByDistance(lightTiles, focalPoint, limit) {
-  if (limit <= 0 || lightTiles.length === 0) {
-    return new Set();
-  }
-
-  if (!Number.isFinite(limit) || limit >= lightTiles.length) {
-    return new Set(lightTiles.map((_, index) => index));
-  }
-
-  const focalX = Number.isFinite(focalPoint?.x) ? focalPoint.x : mapCenter;
-  const focalZ = Number.isFinite(focalPoint?.z) ? focalPoint.z : mapCenter;
-  return new Set(
-    lightTiles
-      .map((tile, index) => ({
-        index,
-        distance: (tile.x + 0.5 - focalX) ** 2 + (tile.z + 0.5 - focalZ) ** 2,
-      }))
-      .sort((a, b) => a.distance - b.distance || a.index - b.index)
-      .slice(0, limit)
-      .map(({ index }) => index),
-  );
 }
 
 function getSewerSurfaceVariant(surface, materialId) {
@@ -6535,185 +7332,6 @@ function hasBoundaryWall(activeTiles, tile, side) {
   return !activeTiles.has(tileKey(neighbor.x, neighbor.z));
 }
 
-function createSewerStageLights(mapSnapshot) {
-  const lightTiles = resolveSewerLightTiles(mapSnapshot);
-  if (!lightTiles.length) {
-    return null;
-  }
-
-  const group = new THREE.Group();
-  group.name = "SewerStageLights";
-  const runtimeLightIndexes = createSewerRuntimeLightIndexSet(lightTiles, mapSnapshot.playerPosition);
-  const shadowLightIndexes = createSewerShadowLightIndexSet(lightTiles, mapSnapshot.playerPosition);
-  const fixtureGeometry = new THREE.CylinderGeometry(0.2, 0.26, 0.14, runtimeIsMobile ? 8 : 14);
-  const bulbGeometry = new THREE.SphereGeometry(0.16, runtimeIsMobile ? 8 : 14, runtimeIsMobile ? 6 : 10);
-  const cableGeometry = new THREE.CylinderGeometry(0.025, 0.025, sewerLightCableLength, 8);
-  const cableMaterial = new THREE.MeshStandardMaterial({
-    color: 0x11100e,
-    roughness: 0.72,
-    metalness: 0.28,
-  });
-
-  lightTiles.forEach((tile, index) => {
-    const center = mapTileCenterToWorld(tile);
-    const color = sewerStageLightColors[index % sewerStageLightColors.length];
-    const fixtureHeight = platformWallHeight - sewerLightCableLength - 0.14;
-    const lightHeight = fixtureHeight - 0.22;
-    const fixtureMaterial = new THREE.MeshStandardMaterial({
-      color: 0x2b2922,
-      roughness: 0.62,
-      metalness: 0.34,
-      emissive: color,
-      emissiveIntensity: 0.2,
-    });
-    const bulbMaterial = new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.92,
-    });
-    const cable = new THREE.Mesh(cableGeometry, cableMaterial);
-    const fixture = new THREE.Mesh(fixtureGeometry, fixtureMaterial);
-    const bulb = new THREE.Mesh(bulbGeometry, bulbMaterial);
-
-    cable.position.set(center.x, platformWallHeight - sewerLightCableLength / 2, center.z);
-    fixture.position.set(center.x, fixtureHeight, center.z);
-    bulb.position.set(center.x, lightHeight, center.z);
-    configureShadowMesh(cable);
-    configureShadowMesh(fixture);
-    configureShadowMesh(bulb, { cast: false, receive: false });
-    group.add(cable, fixture, bulb);
-
-    if (!runtimeLightIndexes.has(index)) {
-      return;
-    }
-
-    const light = new THREE.PointLight(color, sewerFillLightIntensity, sewerFillLightDistance, 1.7);
-    light.position.copy(bulb.position);
-    group.add(light);
-
-    if (performanceProfile.stageSpotLightsEnabled) {
-      const downLight = new THREE.SpotLight(
-        color,
-        sewerDownLightIntensity,
-        sewerDownLightDistance,
-        Math.PI / 4.05,
-        0.68,
-        1.35,
-      );
-      const downLightTarget = new THREE.Object3D();
-      downLight.position.copy(light.position);
-      downLightTarget.position.set(center.x, 0.2, center.z);
-      downLight.target = downLightTarget;
-      if (shadowLightIndexes.has(index)) {
-        configureSewerLightShadow(downLight, {
-          mapSize: runtimeIsMobile ? 512 : 1024,
-          far: sewerDownLightDistance,
-          bias: -0.00018,
-          normalBias: 0.035,
-        });
-      }
-      group.add(downLight, downLightTarget);
-    }
-  });
-
-  return group;
-}
-
-function resolveSewerLightTiles(mapSnapshot) {
-  const placedLightTiles = [...(mapSnapshot.lights || [])]
-    .map(parseTileKey)
-    .filter((tile) => mapSnapshot.activeTiles.has(tileKey(tile.x, tile.z)))
-    .sort((a, b) => a.z - b.z || a.x - b.x);
-
-  if (placedLightTiles.length) {
-    return placedLightTiles;
-  }
-
-  return selectSewerLightTiles(mapSnapshot.activeTiles, mapSnapshot.playerPosition);
-}
-
-function selectSewerLightTiles(activeTiles, focalPoint = null) {
-  const tiles = [...activeTiles].map(parseTileKey);
-  if (!tiles.length) {
-    return [];
-  }
-
-  const bounds = tiles.reduce(
-    (current, tile) => ({
-      minX: Math.min(current.minX, tile.x),
-      maxX: Math.max(current.maxX, tile.x),
-      minZ: Math.min(current.minZ, tile.z),
-      maxZ: Math.max(current.maxZ, tile.z),
-    }),
-    { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity },
-  );
-  const center = {
-    x: (bounds.minX + bounds.maxX) / 2,
-    z: (bounds.minZ + bounds.maxZ) / 2,
-  };
-  const focalTile = focalPoint ? tileFromMapPoint(focalPoint) : null;
-  const desiredCount = Math.min(7, Math.max(3, Math.ceil(tiles.length / 28)));
-  const candidatePoints = [
-    focalTile,
-    { x: bounds.minX + 1, z: bounds.minZ + 1 },
-    { x: bounds.maxX - 1, z: bounds.minZ + 1 },
-    { x: bounds.maxX - 1, z: bounds.maxZ - 1 },
-    { x: bounds.minX + 1, z: bounds.maxZ - 1 },
-    center,
-    { x: center.x, z: bounds.minZ + 2 },
-  ].filter(Boolean);
-  const selected = [];
-  const selectedKeys = new Set();
-
-  for (const point of candidatePoints) {
-    const tile = findNearestUnselectedTile(tiles, point, selectedKeys);
-    if (!tile) {
-      continue;
-    }
-
-    selected.push(tile);
-    selectedKeys.add(tileKey(tile.x, tile.z));
-    if (selected.length >= desiredCount) {
-      return selected;
-    }
-  }
-
-  const sortedTiles = [...tiles].sort((a, b) => a.z - b.z || a.x - b.x);
-  const step = Math.max(1, Math.floor(sortedTiles.length / desiredCount));
-  for (let index = 0; index < sortedTiles.length && selected.length < desiredCount; index += step) {
-    const tile = sortedTiles[index];
-    const key = tileKey(tile.x, tile.z);
-    if (selectedKeys.has(key)) {
-      continue;
-    }
-
-    selected.push(tile);
-    selectedKeys.add(key);
-  }
-
-  return selected;
-}
-
-function findNearestUnselectedTile(tiles, point, selectedKeys) {
-  let nearestTile = null;
-  let nearestDistance = Infinity;
-
-  for (const tile of tiles) {
-    const key = tileKey(tile.x, tile.z);
-    if (selectedKeys.has(key)) {
-      continue;
-    }
-
-    const distance = (tile.x - point.x) ** 2 + (tile.z - point.z) ** 2;
-    if (distance < nearestDistance) {
-      nearestDistance = distance;
-      nearestTile = tile;
-    }
-  }
-
-  return nearestTile;
-}
-
 function prepareModel(model) {
   model.traverse((node) => {
     if (!node.isMesh) {
@@ -6759,7 +7377,7 @@ function prepareStaticModel(model) {
 
     node.castShadow = false;
     node.receiveShadow = false;
-    node.frustumCulled = true;
+    node.frustumCulled = false;
 
     const materials = Array.isArray(node.material) ? node.material : [node.material];
     for (const material of materials) {
@@ -6768,6 +7386,16 @@ function prepareStaticModel(model) {
       }
     }
   });
+}
+
+function groundEnemyModel(model) {
+  model.updateWorldMatrix(true, true);
+  const box = new THREE.Box3().setFromObject(model);
+  if (box.isEmpty()) {
+    return;
+  }
+
+  model.position.y -= box.min.y;
 }
 
 function fitEnemyModelToTile(model) {
@@ -6986,11 +7614,41 @@ function setWeaponStatus(message) {
 }
 
 function syncPlayerHealthHud() {
-  if (!healthHudElement) {
+  if (!healthHudElement && !healthBarFillElement) {
     return;
   }
 
-  healthHudElement.textContent = `Vida ${Math.ceil(playerControlState.health)}`;
+  const healthRatio = THREE.MathUtils.clamp(
+    playerControlState.health / Math.max(playerControlState.maxHealth, 1),
+    0,
+    1,
+  );
+  if (healthBarFillElement) {
+    healthBarFillElement.style.width = `${healthRatio * 100}%`;
+  }
+  if (healthHudElement) {
+    healthHudElement.setAttribute("aria-label", `Vida ${Math.ceil(playerControlState.health)}`);
+  }
+}
+
+function syncPlayerAmmoHud() {
+  if (!ammoHudElement && !ammoCountElement) {
+    return;
+  }
+
+  const ammo = THREE.MathUtils.clamp(
+    Math.floor(playerControlState.ammo),
+    0,
+    playerControlState.maxAmmo,
+  );
+  playerControlState.ammo = ammo;
+  if (ammoCountElement) {
+    ammoCountElement.textContent = String(ammo);
+  }
+  if (ammoHudElement) {
+    ammoHudElement.classList.toggle("is-empty", ammo <= 0);
+    ammoHudElement.setAttribute("aria-label", `Municao ${ammo}`);
+  }
 }
 
 function triggerPlayerDamageFeedback() {

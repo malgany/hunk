@@ -8,7 +8,7 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const preferredPort = Number(process.env.PORT || 5173);
 const host = "127.0.0.1";
 const mapSize = 16;
-const maxJsonBodySize = 64 * 1024;
+const maxJsonBodySize = 512 * 1024;
 const mapConfigPath = path.join(root, "src", "map-config.js");
 const mapDirections = new Set(["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"]);
 const defaultMapDirection = "south";
@@ -118,6 +118,22 @@ async function readJsonBody(request) {
 }
 
 function normalizeMapConfig(body) {
+  const floors = Array.isArray(body?.floors) && body.floors.length > 0
+    ? body.floors.map(normalizeMapFloor).filter(Boolean)
+    : [normalizeMapFloor(body)];
+  if (floors.length === 0) {
+    throw httpError(400, "floors cannot be empty");
+  }
+
+  const currentFloor = clampInteger(body.currentFloor, 0, floors.length - 1);
+  return {
+    ...floors[currentFloor],
+    floors,
+    currentFloor,
+  };
+}
+
+function normalizeMapFloor(body) {
   if (!Array.isArray(body?.tiles)) {
     throw httpError(400, "tiles must be an array");
   }
@@ -144,7 +160,6 @@ function normalizeMapConfig(body) {
     tiles,
     playerPosition: normalizeMapPlayerPosition(body.playerPosition, tiles),
     playerDirection: normalizeMapDirection(body.playerDirection),
-    lights: normalizeMapLights(body.lights, tiles),
     enemies: normalizeMapEnemies(body.enemies, tiles),
     materials: normalizeMapMaterials(body.materials),
     showTileEdges: false,
@@ -178,26 +193,6 @@ function normalizeMapPlayerPosition(position, tiles) {
   };
 }
 
-function normalizeMapLights(lights, tiles) {
-  if (!Array.isArray(lights)) {
-    return [];
-  }
-
-  const tileKeys = new Set(tiles.map(([tileX, tileZ]) => `${tileX},${tileZ}`));
-  const uniqueLights = new Map();
-
-  for (const light of lights) {
-    const tile = normalizeMapTilePoint(light);
-    if (!tile || !tileKeys.has(`${tile.x},${tile.z}`)) {
-      continue;
-    }
-
-    uniqueLights.set(`${tile.x},${tile.z}`, [tile.x, tile.z]);
-  }
-
-  return [...uniqueLights.values()].sort((a, b) => a[1] - b[1] || a[0] - b[0]);
-}
-
 function normalizeMapEnemies(enemies, tiles) {
   if (!Array.isArray(enemies)) {
     return [];
@@ -228,25 +223,19 @@ function normalizeMapEnemies(enemies, tiles) {
       x: position.x,
       z: position.z,
       direction: normalizeMapDirection(source?.direction),
+      type: normalizeEnemyType(source?.type),
     });
   }
 
-  return normalized.sort((a, b) => a.z - b.z || a.x - b.x);
+  return normalized.sort((a, b) => a.z - b.z || a.x - b.x || enemyTypeSortValue(a.type) - enemyTypeSortValue(b.type));
 }
 
-function normalizeMapTilePoint(source) {
-  const point = Array.isArray(source) ? { x: source[0], z: source[1] } : source;
-  const x = Number(point?.x);
-  const z = Number(point?.z);
+function normalizeEnemyType(type) {
+  return type === "boss" ? "boss" : "skeleton";
+}
 
-  if (!Number.isFinite(x) || !Number.isFinite(z)) {
-    return null;
-  }
-
-  return {
-    x: Math.floor(clamp(x, 0, mapSize - 0.001)),
-    z: Math.floor(clamp(z, 0, mapSize - 0.001)),
-  };
+function enemyTypeSortValue(type) {
+  return normalizeEnemyType(type) === "boss" ? 1 : 0;
 }
 
 function normalizeMapDirection(direction) {
@@ -291,42 +280,61 @@ function candidateMapIndices(value) {
 }
 
 function serializeMapConfig(config) {
-  const tileLines = config.tiles.map(([x, z]) => `    [${x}, ${z}],`);
-  const lightLines = config.lights.map(([x, z]) => `    [${x}, ${z}],`);
-  const enemyLines = config.enemies.map((enemy) => (
-    `    { x: ${formatNumber(enemy.x)}, z: ${formatNumber(enemy.z)}, direction: ${JSON.stringify(enemy.direction)} },`
-  ));
+  const floorBlocks = config.floors.flatMap((floor) => [
+    "    {",
+    ...serializeMapFloorFields(floor, 6),
+    "    },",
+  ]);
 
   return [
     "export const defaultMapConfig = {",
-    "  tiles: [",
-    ...tileLines,
+    ...serializeMapFloorFields(config, 2),
+    `  currentFloor: ${config.currentFloor},`,
+    "  floors: [",
+    ...floorBlocks,
     "  ],",
-    "  playerPosition: {",
-    `    x: ${formatNumber(config.playerPosition.x)},`,
-    `    z: ${formatNumber(config.playerPosition.z)},`,
-    "  },",
-    `  playerDirection: ${JSON.stringify(config.playerDirection)},`,
-    "  lights: [",
-    ...lightLines,
-    "  ],",
-    "  enemies: [",
-    ...enemyLines,
-    "  ],",
-    "  materials: {",
-    `    floor: ${JSON.stringify(config.materials.floor)},`,
-    `    wall: ${JSON.stringify(config.materials.wall)},`,
-    `    ceiling: ${JSON.stringify(config.materials.ceiling)},`,
-    "  },",
-    "  showTileEdges: false,",
-    "  isCovered: true,",
     "};",
     "",
   ].join("\n");
 }
 
+function serializeMapFloorFields(floor, indentSize) {
+  const indent = " ".repeat(indentSize);
+  const item = " ".repeat(indentSize + 2);
+  const tileLines = floor.tiles.map(([x, z]) => `${item}[${x}, ${z}],`);
+  const enemyLines = floor.enemies.map((enemy) => (
+    `${item}{ x: ${formatNumber(enemy.x)}, z: ${formatNumber(enemy.z)}, direction: ${JSON.stringify(enemy.direction)}, type: ${JSON.stringify(normalizeEnemyType(enemy.type))} },`
+  ));
+
+  return [
+    `${indent}tiles: [`,
+    ...tileLines,
+    `${indent}],`,
+    `${indent}playerPosition: {`,
+    `${item}x: ${formatNumber(floor.playerPosition.x)},`,
+    `${item}z: ${formatNumber(floor.playerPosition.z)},`,
+    `${indent}},`,
+    `${indent}playerDirection: ${JSON.stringify(floor.playerDirection)},`,
+    `${indent}enemies: [`,
+    ...enemyLines,
+    `${indent}],`,
+    `${indent}materials: {`,
+    `${item}floor: ${JSON.stringify(floor.materials.floor)},`,
+    `${item}wall: ${JSON.stringify(floor.materials.wall)},`,
+    `${item}ceiling: ${JSON.stringify(floor.materials.ceiling)},`,
+    `${indent}},`,
+    `${indent}showTileEdges: false,`,
+    `${indent}isCovered: true,`,
+  ];
+}
+
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function clampInteger(value, min, max) {
+  const integer = Number.isInteger(value) ? value : min;
+  return Math.min(Math.max(integer, min), max);
 }
 
 function roundMapCoordinate(value) {

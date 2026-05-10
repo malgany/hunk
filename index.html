@@ -98,6 +98,8 @@
               <button id="mapZoomOut" type="button" aria-label="Diminuir zoom">-</button>
               <button id="mapZoomReset" type="button">Fit</button>
               <button id="mapZoomIn" type="button" aria-label="Aumentar zoom">+</button>
+              <button id="clearMapButton" type="button" aria-label="Limpar mapa">×</button>
+              <button id="generateMapButton" type="button" aria-label="Gerar mapa">↻</button>
             </div>
             <div class="tile-editor-options" aria-label="Opcoes de construcao">
               <label class="toggle-row" for="showTileEdges">
@@ -145,6 +147,7 @@
               </div>
             </div>
             <div class="map-editor-main">
+              <div class="floor-stack" id="floorStack" aria-label="Andares salvos"></div>
               <div class="map-scroll" id="mapViewport">
                 <canvas
                   class="map-canvas"
@@ -158,16 +161,17 @@
                 <button class="map-tool-button is-active" type="button" data-map-tool="tile" aria-pressed="true" aria-label="Tile">
                   <span class="map-tool-icon map-tool-icon--tile" aria-hidden="true"></span>
                 </button>
-                <button class="map-tool-button" type="button" data-map-tool="light" aria-pressed="false" aria-label="Lampada">
-                  <span class="map-tool-icon map-tool-icon--light" aria-hidden="true"></span>
-                </button>
                 <button class="map-tool-button" type="button" data-map-tool="enemy" aria-pressed="false" aria-label="Inimigo">
                   <span class="map-tool-icon map-tool-icon--enemy" aria-hidden="true"></span>
+                </button>
+                <button class="map-tool-button" type="button" data-map-tool="boss" aria-pressed="false" aria-label="Chefao">
+                  <span class="map-tool-icon map-tool-icon--boss" aria-hidden="true"></span>
                 </button>
               </div>
             </div>
             <div class="map-editor-actions">
               <button id="applyMapButton" type="button">Aplicar</button>
+              <button id="saveFloorButton" type="button">Salvar andar</button>
             </div>
             <p class="map-feedback" id="mapFeedback" aria-live="polite">Mapa aplicado</p>
           </section>
@@ -236,7 +240,17 @@
 
       <main class="phone-shell" aria-label="Rank mobile 3D model viewer">
         <div class="hud" aria-hidden="true">
-          <span data-health-hud>Vida 50</span>
+          <div class="health-hud hud-panel" data-health-hud>
+            <span class="health-hud__icon">♥</span>
+            <span class="health-hud__track">
+              <span class="health-hud__fill" data-health-bar-fill></span>
+            </span>
+          </div>
+          <div class="ammo-hud hud-panel" data-ammo-hud>
+            <span class="ammo-hud__icon" aria-hidden="true"></span>
+            <span class="ammo-hud__count" data-ammo-count>20</span>
+            <span class="ammo-hud__pickup" data-ammo-pickup-toast hidden>+10</span>
+          </div>
         </div>
         <div class="scene" data-scene></div>
         <div class="crosshair" data-crosshair aria-hidden="true">
@@ -252,6 +266,7 @@
         </div>
         <button class="mobile-fire-button" data-mobile-fire-button type="button" aria-label="Atirar"></button>
         <div class="damage-flash" data-damage-flash aria-hidden="true"></div>
+        <div class="stage-banner" data-stage-banner hidden></div>
         <div class="status" id="status" role="status">Carregando modelo...</div>
       </main>
 
