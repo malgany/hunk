@@ -248,15 +248,13 @@
           </div>
           <div class="hud-right">
             <div class="weapon-slot-hud" data-weapon-slot-hud>
-              <span class="weapon-slot is-unlocked is-active" data-combat-weapon-slot="pew">
+              <span class="weapon-slot is-unlocked is-active" data-combat-weapon-slot="pew" aria-label="Pistol slot 1">
                 <span class="weapon-slot__key">1</span>
                 <span class="weapon-slot__icon weapon-slot__icon--pistol" aria-hidden="true"></span>
-                <span class="weapon-slot__label">Pistol</span>
               </span>
-              <span class="weapon-slot" data-combat-weapon-slot="shotgun">
+              <span class="weapon-slot" data-combat-weapon-slot="shotgun" aria-label="Shotgun slot 2">
                 <span class="weapon-slot__key">2</span>
                 <span class="weapon-slot__icon weapon-slot__icon--shotgun" aria-hidden="true"></span>
-                <span class="weapon-slot__label">Shotgun</span>
               </span>
             </div>
             <div class="ammo-hud hud-panel is-weapon-pistol" data-ammo-hud>
@@ -266,6 +264,7 @@
             </div>
           </div>
         </div>
+        <div class="run-timer" data-run-timer hidden>00:00:00</div>
         <div class="scene" data-scene></div>
         <div class="crosshair" data-crosshair aria-hidden="true">
           <span class="crosshair__arm crosshair__arm--top"></span>
@@ -279,9 +278,30 @@
           <span class="mobile-joystick__stick" data-mobile-joystick-stick></span>
         </div>
         <button class="mobile-fire-button" data-mobile-fire-button type="button" aria-label="Atirar"></button>
+        <button class="corpse-search-button" data-corpse-search-button type="button" hidden>
+          <span class="corpse-search-button__key">E</span>
+          <span class="corpse-search-button__label">Vasculhar</span>
+        </button>
         <div class="damage-flash" data-damage-flash aria-hidden="true"></div>
         <div class="stage-banner" data-stage-banner hidden></div>
         <div class="status" id="status" role="status">Carregando modelo...</div>
+        <div
+          class="run-summary-modal"
+          data-run-summary-modal
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="runSummaryTitle"
+          hidden
+        >
+          <section class="run-summary-card" aria-label="Resumo da run">
+            <h2 class="run-summary-title" id="runSummaryTitle" data-run-summary-title>Você morreu</h2>
+            <div class="run-summary-body" data-run-summary-body></div>
+            <div class="run-summary-actions">
+              <button class="run-summary-button" data-restart-run-button type="button">Reiniciar</button>
+              <button class="run-summary-button run-summary-button--secondary" data-exit-run-button type="button">Sair</button>
+            </div>
+          </section>
+        </div>
       </main>
 
       <div class="dev-side-stack dev-side-stack--right">

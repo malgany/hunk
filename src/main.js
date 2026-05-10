@@ -18,9 +18,16 @@ const weaponSlotHudElement = document.querySelector("[data-weapon-slot-hud]");
 const weaponSlotElements = document.querySelectorAll("[data-combat-weapon-slot]");
 const damageFlashElement = document.querySelector("[data-damage-flash]");
 const stageBannerElement = document.querySelector("[data-stage-banner]");
+const runTimerElement = document.querySelector("[data-run-timer]");
+const runSummaryModalElement = document.querySelector("[data-run-summary-modal]");
+const runSummaryTitleElement = document.querySelector("[data-run-summary-title]");
+const runSummaryBodyElement = document.querySelector("[data-run-summary-body]");
+const restartRunButton = document.querySelector("[data-restart-run-button]");
+const exitRunButton = document.querySelector("[data-exit-run-button]");
 const mobileJoystickElement = document.querySelector("[data-mobile-joystick]");
 const mobileJoystickStickElement = document.querySelector("[data-mobile-joystick-stick]");
 const mobileFireButton = document.querySelector("[data-mobile-fire-button]");
+const corpseSearchButton = document.querySelector("[data-corpse-search-button]");
 const startScreen = document.querySelector("#startScreen");
 const startButton = document.querySelector("#startButton");
 const mapCanvas = document.querySelector("#mapCanvas");
@@ -169,7 +176,8 @@ const platformCeilingThickness = 0.2;
 const wallOcclusionOpacity = 0.16;
 const cameraCollisionRadius = 1.05;
 const cameraCollisionWallPadding = 0.42;
-const cameraCollisionReturnDamping = 12;
+const cameraCollisionHoldReturnDamping = 9;
+const cameraCollisionHoldSnapDistance = 0.08;
 const cameraCollisionSearchSteps = 14;
 const cameraCollisionSearchIterations = 8;
 const cameraCloseViewRatioStart = 0.42;
@@ -232,6 +240,15 @@ const playerFireInterval = 1;
 const projectileMaxDistance = 80;
 const projectileBodyDamage = 2;
 const projectileHeadDamage = 10;
+const shotgunMaxDistance = platformTileSize * 5;
+const shotgunConeBaseRadius = 0.26;
+const shotgunConeRadiusPerTile = 0.34;
+const shotgunDamageSteps = [
+  { maxTiles: 1, multiplier: 4 },
+  { maxTiles: 2, multiplier: 3 },
+  { maxTiles: 4, multiplier: 1 },
+  { maxTiles: 5, multiplier: 0.5 },
+];
 const ammoPickupAmount = 10;
 const ammoDropChance = 0.25;
 const ammoPickupCollectRadius = 1.35;
@@ -239,11 +256,17 @@ const ammoPickupMagnetRadius = 2.15;
 const ammoPickupMagnetSpeed = 9;
 const ammoPickupBoxHeight = 0.22;
 const ammoPickupToastDuration = 0.9;
+const corpseSearchDuration = 6;
+const corpseSearchRadius = platformTileSize;
+const corpseSearchAmmoAmount = 5;
+const corpseSearchFindChance = 0.5;
+const corpseSearchAnimationRestartSeconds = 0.9;
 const shotgunChestFloorIndex = 1;
 const shotgunChestTriggerRadius = 1.45;
 const shotgunPickupRadius = 1.15;
 const shotgunDropDuration = 0.72;
 const shotgunDropArcHeight = 0.9;
+const runRecordsStorageKey = "theRank.records.v1";
 const enemyHealthBarCanvasWidth = 128;
 const enemyHealthBarCanvasHeight = 24;
 const enemyHealthBarNormalWidth = 1.9;
@@ -706,6 +729,8 @@ let activeAmmoPickups = [];
 let activeLootChest = null;
 let activeWeaponDrop = null;
 let ammoPickupToastTimer = 0;
+let corpseSearchState = createCorpseSearchState();
+let manualMovementPreviewId = null;
 let playerCameraOpacity = 1;
 const wallOcclusionRaycaster = new THREE.Raycaster();
 const wallOcclusionTarget = new THREE.Vector3();
@@ -734,6 +759,13 @@ const projectileEnemyHit = {
 const projectileHitPoint = new THREE.Vector3();
 const projectileBodyBox = new THREE.Box3();
 const projectileHeadBox = new THREE.Box3();
+const shotgunConeCenter = new THREE.Vector3();
+const shotgunConeOffset = new THREE.Vector3();
+const shotgunConeClosestPoint = new THREE.Vector3();
+const shotgunConeImpactPoint = new THREE.Vector3();
+const shotgunConeNormal = new THREE.Vector3();
+const shotgunConeBoxSize = new THREE.Vector3();
+const shotgunEnemyHits = [];
 const damageNumberPosition = new THREE.Vector3();
 const damageNumberCameraOffset = new THREE.Vector3();
 const ammoPickupPosition = new THREE.Vector3();
@@ -749,6 +781,8 @@ const cameraCollisionDirection = new THREE.Vector3();
 const cameraCollisionRayDirection = new THREE.Vector3();
 const cameraCollisionResolvedPosition = new THREE.Vector3();
 const cameraCollisionProbePosition = new THREE.Vector3();
+const cameraCollisionHeldCandidate = new THREE.Vector3();
+const cameraCollisionAnchorDelta = new THREE.Vector3();
 const cameraCloseLookDirection = new THREE.Vector3();
 const cameraCloseLookTarget = new THREE.Vector3();
 const cameraBlendedLookTarget = new THREE.Vector3();
@@ -773,7 +807,9 @@ let mapEditorSyncTimer = 0;
 let mapEditorSyncPending = false;
 let perfOverlayState = null;
 let sceneLoadStarted = false;
+let sceneReady = false;
 let stageFlowState = createStageFlowState();
+let runTimingState = createRunTimingState();
 
 function clip(id, loop = false, options = {}) {
   return { id, loop, ...options };
@@ -908,6 +944,8 @@ setupDevPanelTabs();
 setupCameraControls();
 setupMobileControls();
 setupWeaponSlotHud();
+setupCorpseSearchControls();
+setupRunSummaryControls();
 setupAttachmentControls();
 renderColorPanel();
 setupColorControls();
@@ -994,8 +1032,11 @@ renderer.setAnimationLoop((timestamp) => {
   updateEnemyCombatIndicators(delta);
   updateAmmoPickups(delta);
   updateAmmoPickupToast(delta);
+  updateCorpseSearch(delta);
+  updateCorpseSearchPrompt();
   updateFloorLoot(delta);
   updateStageFlow(delta);
+  updateRunTimer();
   updateDeferredMapEditorSync(delta);
 
   if (cameraControlState.freeCamera) {
@@ -1015,11 +1056,13 @@ function setupStartScreen() {
   enterStartScreenLandscape();
 
   if (!startScreen || !startButton) {
-    startGame();
+    void startGame();
     return;
   }
 
-  startButton.addEventListener("click", startGame, { once: true });
+  startButton.addEventListener("click", () => {
+    void startGame();
+  });
 }
 
 function enterStartScreenLandscape() {
@@ -1034,32 +1077,60 @@ function enterStartScreenLandscape() {
   }
 }
 
-function startGame() {
-  if (sceneLoadStarted) {
+async function startGame() {
+  if (sceneLoadStarted && !sceneReady) {
     return;
   }
 
-  sceneLoadStarted = true;
   enterPreferredFullscreenAndOrientation();
 
   if (startButton) {
     startButton.disabled = true;
   }
 
-  document.body.classList.add("has-started");
+  hideStartScreenOverlay();
   clearPlayerMouseButtons();
   syncPlayerHealthHud();
   syncPlayerAmmoHud();
   syncWeaponSlotHud();
 
-  if (startScreen) {
-    startScreen.setAttribute("aria-hidden", "true");
-    window.setTimeout(() => {
-      startScreen.hidden = true;
-    }, 320);
+  if (sceneReady) {
+    await startGameplayRun();
+    return;
   }
 
-  loadScene();
+  sceneLoadStarted = true;
+  await loadScene();
+}
+
+function hideStartScreenOverlay() {
+  document.body.classList.add("has-started");
+
+  if (!startScreen) {
+    return;
+  }
+
+  startScreen.hidden = false;
+  startScreen.setAttribute("aria-hidden", "true");
+  window.setTimeout(() => {
+    if (document.body.classList.contains("has-started")) {
+      startScreen.hidden = true;
+    }
+  }, 320);
+}
+
+function showStartScreenOverlay() {
+  document.body.classList.remove("has-started");
+  enterStartScreenLandscape();
+
+  if (startScreen) {
+    startScreen.hidden = false;
+    startScreen.setAttribute("aria-hidden", "false");
+  }
+
+  if (startButton) {
+    startButton.disabled = false;
+  }
 }
 
 async function loadScene() {
@@ -1098,6 +1169,8 @@ async function loadScene() {
     setAttachmentControlsEnabled(true);
     movementSelect.value = defaultMovementId;
     playMovement(defaultMovementId, { restart: true });
+    sceneReady = true;
+    await startGameplayRun();
 
     setStatus("Carregado", "done");
     syncWeaponSlotHud();
@@ -1108,6 +1181,10 @@ async function loadScene() {
     console.error(error);
     setStatus("Nao foi possivel carregar o modelo", "error");
     setMovementStatus("Erro ao carregar");
+    sceneLoadStarted = false;
+    if (startButton) {
+      startButton.disabled = false;
+    }
     syncCrosshair();
   }
 }
@@ -1129,6 +1206,7 @@ async function equipWeapon(weaponId) {
   updateAttachmentControls();
   syncWeaponSlotHud();
   syncPlayerAmmoHud();
+  syncCrosshair();
 
   if (!heldSlot) {
     setWeaponStatus(`Slot ${nextWeapon.slotName} nao encontrado`);
@@ -1152,6 +1230,7 @@ async function equipWeapon(weaponId) {
     setWeaponStatus(`Arma: ${nextWeapon.label}`);
     syncWeaponSlotHud();
     syncPlayerAmmoHud();
+    syncCrosshair();
     return currentHeldItem;
   } catch (error) {
     console.error(error);
@@ -1284,7 +1363,7 @@ function populateMovementSelect() {
 
   movementSelect.value = defaultMovementId;
   movementSelect.addEventListener("change", () => {
-    playMovement(movementSelect.value, { restart: true });
+    setManualMovementPreview(movementSelect.value);
   });
 }
 
@@ -1568,6 +1647,58 @@ async function enterPreferredFullscreenAndOrientation() {
   }
 }
 
+function setupRunSummaryControls() {
+  restartRunButton?.addEventListener("click", () => {
+    void restartRun();
+  });
+  exitRunButton?.addEventListener("click", exitRunToStart);
+  syncRunTimerHud();
+}
+
+async function restartRun() {
+  enterPreferredFullscreenAndOrientation();
+  await startGameplayRun();
+}
+
+function exitRunToStart() {
+  clearPlayerMouseButtons();
+  resetCorpseSearchState();
+  clearManualMovementPreview();
+  hideRunSummaryModal();
+  hideStageBanner();
+  runTimingState = createRunTimingState();
+  syncRunTimerHud();
+  showStartScreenOverlay();
+  syncCrosshair();
+}
+
+async function startGameplayRun() {
+  if (!sceneReady || !characterModel) {
+    return;
+  }
+
+  hideRunSummaryModal();
+  hideStageBanner();
+  clearPlayerMouseButtons();
+  phoneShellElement?.classList.remove("is-player-hit");
+  playerControlState = createPlayerControlState();
+  resetCorpseSearchState();
+  clearManualMovementPreview();
+  activeWeapon = weaponById.get(defaultWeaponId) || weaponOptions[0];
+
+  const firstFloor = mapEditorState.floors[0] || createDefaultMapFloorConfig();
+  loadMapFloorIntoEditor(firstFloor, 0);
+  await equipWeapon(defaultWeaponId);
+  playMovement(defaultMovementId, { restart: true });
+  startRunTimer(0);
+  syncPlayerHealthHud();
+  syncPlayerAmmoHud();
+  syncWeaponSlotHud();
+  syncCrosshair();
+  setStatus("Carregado", "done");
+  window.setTimeout(() => hideStatus(), 550);
+}
+
 function setupWeaponSlotHud() {
   for (const element of weaponSlotElements) {
     element.addEventListener("pointerdown", (event) => {
@@ -1581,12 +1712,21 @@ function setupWeaponSlotHud() {
   }
 }
 
+function setupCorpseSearchControls() {
+  corpseSearchButton?.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void enterPreferredFullscreenAndOrientation();
+    startCorpseSearchFromPrompt();
+  });
+}
+
 function handleMobilePointerDown(event) {
-  if (!runtimeIsMobile || playerControlState.dead || cameraControlState.freeCamera) {
+  if (!runtimeIsMobile || playerControlState.dead || cameraControlState.freeCamera || corpseSearchState.active) {
     return;
   }
 
-  if (event.target === mobileFireButton) {
+  if (event.target === mobileFireButton || event.target.closest?.("[data-corpse-search-button]")) {
     return;
   }
 
@@ -1643,6 +1783,7 @@ function startMobileJoystick(event, rect = phoneShellElement.getBoundingClientRe
   moveState.x = 0;
   moveState.y = 0;
   moveState.magnitude = 0;
+  clearManualMovementPreview();
   setPointerCaptureSafe(phoneShellElement, event.pointerId);
 
   if (mobileJoystickElement) {
@@ -1718,7 +1859,7 @@ function stopMobileLook() {
 }
 
 function handleMobileFireDown(event) {
-  if (!runtimeIsMobile || playerControlState.dead) {
+  if (!runtimeIsMobile || playerControlState.dead || corpseSearchState.active) {
     return;
   }
 
@@ -1729,6 +1870,7 @@ function handleMobileFireDown(event) {
   startMobileFireLook(event);
   playerControlState.aiming = true;
   playerControlState.shooting = true;
+  clearManualMovementPreview();
   mobileFireButton?.classList.add("is-firing");
   syncCrosshair();
   tryFirePlayerWeapon({ force: true });
@@ -1825,6 +1967,9 @@ function createCameraControlState() {
     anchorTarget: new THREE.Vector3(0, 2.1, 0),
     anchorDistance: anchoredCameraPreset.cameraOffset.distanceTo(anchoredCameraPreset.targetOffset),
     collisionRatio: 1,
+    collisionHoldActive: false,
+    lastAnchorTarget: new THREE.Vector3(0, 2.1, 0),
+    lastAnchorTargetInitialized: false,
     pressedKeys: new Set(),
   };
 }
@@ -1875,6 +2020,16 @@ function createPlayerControlState() {
   };
 }
 
+function createCorpseSearchState() {
+  return {
+    active: false,
+    enemy: null,
+    timer: 0,
+    animationTimer: 0,
+    promptEnemy: null,
+  };
+}
+
 function createCollisionDebugState() {
   return {
     enabled: false,
@@ -1894,6 +2049,7 @@ function setFreeCameraEnabled(enabled) {
   stopMobileJoystick();
   stopMobileLook();
   stopMobileFireLook();
+  resetCorpseSearchState();
   mobileFireButton?.classList.remove("is-firing");
   controls.autoRotate = false;
   controls.enabled = enabled;
@@ -1955,6 +2111,11 @@ function applyAnchoredCameraFrame(delta = 1 / 60) {
     return;
   }
 
+  if (!cameraControlState.lastAnchorTargetInitialized) {
+    cameraControlState.lastAnchorTarget.copy(cameraControlState.anchorTarget);
+    cameraControlState.lastAnchorTargetInitialized = true;
+  }
+
   const offset = anchoredCameraManualOffset.set(
     cameraControlState.offset.x,
     cameraControlState.offset.y,
@@ -1977,6 +2138,7 @@ function applyAnchoredCameraFrame(delta = 1 / 60) {
   camera.position.copy(resolvedPosition);
   camera.lookAt(viewTarget);
   cameraControlState.anchorDistance = camera.position.distanceTo(target);
+  cameraControlState.lastAnchorTarget.copy(cameraControlState.anchorTarget);
   camera.updateProjectionMatrix();
   controls.update();
 }
@@ -2014,35 +2176,68 @@ function resolveAnchoredCameraPosition(origin, desiredPosition, delta) {
 
   if (idealDistance <= 0.001 || !mapEditorState.appliedIsCovered || mapEditorState.appliedTiles.size === 0) {
     cameraControlState.collisionRatio = 1;
+    cameraControlState.collisionHoldActive = false;
     return cameraCollisionResolvedPosition.copy(desiredPosition);
   }
 
   const wallRatio = getWallCollisionCameraRatio(origin, idealDistance);
   const tileRatio = getAppliedTileCameraRatio(origin);
   const allowedRatio = Math.min(wallRatio, tileRatio);
-  const currentRatio = Number.isFinite(cameraControlState.collisionRatio)
-    ? cameraControlState.collisionRatio
-    : 1;
+  const smoothingDelta = Number.isFinite(delta) && delta > 0 ? delta : 1 / 60;
 
-  if (allowedRatio < currentRatio) {
+  if (allowedRatio < 0.995) {
+    const heldPosition = getAnchoredCameraHoldPosition(origin);
+    if (heldPosition) {
+      cameraControlState.collisionHoldActive = true;
+      cameraControlState.collisionRatio = 1;
+      return cameraCollisionResolvedPosition.copy(heldPosition);
+    }
+
+    cameraControlState.collisionHoldActive = false;
     cameraControlState.collisionRatio = allowedRatio;
-  } else {
-    const smoothingDelta = Number.isFinite(delta) && delta > 0 ? delta : 1 / 60;
-    cameraControlState.collisionRatio = THREE.MathUtils.damp(
-      currentRatio,
-      allowedRatio,
-      cameraCollisionReturnDamping,
-      smoothingDelta,
-    );
+    return cameraCollisionResolvedPosition
+      .copy(origin)
+      .addScaledVector(cameraCollisionDirection, allowedRatio);
+  }
 
-    if (Math.abs(cameraControlState.collisionRatio - allowedRatio) < 0.001) {
-      cameraControlState.collisionRatio = allowedRatio;
+  cameraControlState.collisionRatio = 1;
+  if (cameraControlState.collisionHoldActive) {
+    const returnRatio = 1 - Math.exp(-cameraCollisionHoldReturnDamping * smoothingDelta);
+    cameraCollisionResolvedPosition.copy(camera.position).lerp(desiredPosition, returnRatio);
+    if (!canUseAnchoredCameraPosition(cameraCollisionResolvedPosition)) {
+      return cameraCollisionResolvedPosition.copy(camera.position);
+    }
+
+    if (cameraCollisionResolvedPosition.distanceToSquared(desiredPosition) <= cameraCollisionHoldSnapDistance ** 2) {
+      cameraControlState.collisionHoldActive = false;
+      return cameraCollisionResolvedPosition.copy(desiredPosition);
+    }
+
+    return cameraCollisionResolvedPosition;
+  }
+
+  return cameraCollisionResolvedPosition.copy(desiredPosition);
+}
+
+function getAnchoredCameraHoldPosition(origin) {
+  cameraCollisionAnchorDelta.copy(origin).sub(cameraControlState.lastAnchorTarget);
+  if (cameraCollisionAnchorDelta.lengthSq() > 0.000001) {
+    cameraCollisionHeldCandidate.copy(camera.position).add(cameraCollisionAnchorDelta);
+    cameraCollisionHeldCandidate.y = camera.position.y;
+    if (canUseAnchoredCameraPosition(cameraCollisionHeldCandidate)) {
+      return cameraCollisionHeldCandidate;
     }
   }
 
-  return cameraCollisionResolvedPosition
-    .copy(origin)
-    .addScaledVector(cameraCollisionDirection, cameraControlState.collisionRatio);
+  return canUseAnchoredCameraPosition(camera.position) ? camera.position : null;
+}
+
+function canUseAnchoredCameraPosition(position) {
+  if (!mapEditorState.appliedIsCovered || mapEditorState.appliedTiles.size === 0) {
+    return true;
+  }
+
+  return isCameraPositionInsideAppliedTiles(position, true);
 }
 
 function getWallCollisionCameraRatio(origin, idealDistance) {
@@ -2165,12 +2360,20 @@ function handleCameraKeyDown(event) {
     return;
   }
 
+  if (key === "e") {
+    if (startCorpseSearchFromPrompt()) {
+      event.preventDefault();
+    }
+    return;
+  }
+
   const isMovementKey = ["w", "a", "s", "d", "shift"].includes(key);
   if (!isMovementKey) {
     return;
   }
 
   event.preventDefault();
+  clearManualMovementPreview();
 
   if (cameraControlState.freeCamera) {
     if (key !== "shift") {
@@ -2263,7 +2466,12 @@ function handlePlayerPointerDown(event) {
 
   renderer.domElement.focus();
 
-  if (cameraControlState.freeCamera || playerControlState.dead || (event.button !== 0 && event.button !== 2)) {
+  if (
+    cameraControlState.freeCamera
+    || playerControlState.dead
+    || corpseSearchState.active
+    || (event.button !== 0 && event.button !== 2)
+  ) {
     return;
   }
 
@@ -2300,7 +2508,7 @@ function handlePlayerMouseButtonChange(event) {
     return;
   }
 
-  if (isButtonDown && (cameraControlState.freeCamera || playerControlState.dead)) {
+  if (isButtonDown && (cameraControlState.freeCamera || playerControlState.dead || corpseSearchState.active)) {
     return;
   }
 
@@ -2370,6 +2578,10 @@ function syncPlayerMouseButtons(event) {
   playerControlState.mouseButtons = buttons;
   playerControlState.shooting = nextShooting;
   playerControlState.aiming = nextAiming;
+
+  if (nextShooting || nextAiming) {
+    clearManualMovementPreview();
+  }
 
   if (changed) {
     syncCrosshair();
@@ -2446,6 +2658,12 @@ function updatePlayerControls(delta) {
     return;
   }
 
+  if (corpseSearchState.active) {
+    updateCameraAnchorFromCharacter();
+    applyAnchoredCameraFrame(delta);
+    return;
+  }
+
   applyPlayerYaw();
 
   const movement = getPlayerMovementVector();
@@ -2497,6 +2715,7 @@ function tryFirePlayerWeapon({ force = false } = {}) {
     || playerControlState.pendingShotTimer > 0
     || (!force && playerControlState.fireCooldown > 0)
     || cameraControlState.freeCamera
+    || corpseSearchState.active
   ) {
     return false;
   }
@@ -2536,6 +2755,14 @@ function firePlayerProjectile() {
     return false;
   }
 
+  if (getActiveCombatWeaponId() === shotgunCombatWeaponId) {
+    return firePlayerShotgunProjectile();
+  }
+
+  return firePlayerSingleProjectile();
+}
+
+function firePlayerSingleProjectile() {
   camera.getWorldDirection(projectileDirection).normalize();
   createMuzzleFlash(projectileDirection);
   enemyProjectileRaycaster.set(camera.position, projectileDirection);
@@ -2568,6 +2795,38 @@ function firePlayerProjectile() {
   return true;
 }
 
+function firePlayerShotgunProjectile() {
+  camera.getWorldDirection(projectileDirection).normalize();
+  createMuzzleFlash(projectileDirection);
+  enemyProjectileRaycaster.set(camera.position, projectileDirection);
+  enemyProjectileRaycaster.near = 0;
+  enemyProjectileRaycaster.far = shotgunMaxDistance;
+
+  const wallHits = wallOccluderList.length
+    ? enemyProjectileRaycaster.intersectObjects(wallOccluderList, false)
+    : [];
+  const closestWallDistance = Math.min(wallHits[0]?.distance ?? Infinity, shotgunMaxDistance);
+  const enemyHits = getShotgunEnemyHits(closestWallDistance);
+
+  if (enemyHits.length > 0) {
+    for (const enemyHit of enemyHits) {
+      const damage = getShotgunDamage(enemyHit.distance, enemyHit.headshot);
+      createImpactEffect(enemyHit.point, enemyHit.normal, { hitEnemy: true });
+      spawnEnemyDamageNumber(enemyHit.enemy, damage, { headshot: enemyHit.headshot, point: enemyHit.point });
+      damageEnemy(enemyHit.enemy, damage, { source: "shot", headshot: enemyHit.headshot });
+    }
+    return true;
+  }
+
+  if (wallHits[0] && wallHits[0].distance <= shotgunMaxDistance) {
+    const wallHit = wallHits[0];
+    getShotImpactNormal(wallHit, shotImpactNormal);
+    createImpactEffect(wallHit.point, shotImpactNormal, { hitEnemy: false });
+  }
+
+  return true;
+}
+
 function getClosestProjectileEnemyHit(maxDistance) {
   let closestDistance = maxDistance;
   projectileEnemyHit.enemy = null;
@@ -2585,6 +2844,95 @@ function getClosestProjectileEnemyHit(maxDistance) {
   }
 
   return projectileEnemyHit.enemy ? projectileEnemyHit : null;
+}
+
+function getShotgunEnemyHits(maxDistance) {
+  shotgunEnemyHits.length = 0;
+
+  for (const enemy of activeEnemies) {
+    if (!isEnemyTargetable(enemy)) {
+      continue;
+    }
+
+    const hit = getShotgunEnemyHit(enemy, maxDistance);
+    if (hit) {
+      shotgunEnemyHits.push(hit);
+    }
+  }
+
+  shotgunEnemyHits.sort((a, b) => a.distance - b.distance);
+  return shotgunEnemyHits;
+}
+
+function getShotgunEnemyHit(enemy, maxDistance) {
+  if (!enemy.hitbox) {
+    return null;
+  }
+
+  updateEnemyProjectileBoxes(enemy);
+
+  const headHit = getShotgunConeHitForBox(enemy, projectileHeadBox, maxDistance, true);
+  if (headHit) {
+    return headHit;
+  }
+
+  return getShotgunConeHitForBox(enemy, projectileBodyBox, maxDistance, false);
+}
+
+function getShotgunConeHitForBox(enemy, box, maxDistance, headshot) {
+  box.getCenter(shotgunConeCenter);
+  box.getSize(shotgunConeBoxSize);
+
+  const targetRadius = headshot
+    ? enemy.hitbox.headRadius * 1.15
+    : Math.max(enemy.hitbox.bodyRadius, shotgunConeBoxSize.y * 0.48);
+  const projection = shotgunConeOffset
+    .copy(shotgunConeCenter)
+    .sub(camera.position)
+    .dot(projectileDirection);
+
+  if (projection <= 0 || projection > maxDistance) {
+    return null;
+  }
+
+  shotgunConeClosestPoint.copy(camera.position).addScaledVector(projectileDirection, projection);
+  const lateralDistance = shotgunConeClosestPoint.distanceTo(shotgunConeCenter);
+  const coneRadius = getShotgunConeRadius(projection);
+  if (lateralDistance > coneRadius + targetRadius) {
+    return null;
+  }
+
+  shotgunConeNormal.copy(shotgunConeClosestPoint).sub(shotgunConeCenter);
+  if (shotgunConeNormal.lengthSq() > 0.0001) {
+    shotgunConeNormal.normalize();
+    shotgunConeImpactPoint.copy(shotgunConeCenter).addScaledVector(
+      shotgunConeNormal,
+      Math.min(targetRadius, lateralDistance),
+    );
+  } else {
+    shotgunConeNormal.copy(projectileDirection).multiplyScalar(-1).normalize();
+    shotgunConeImpactPoint.copy(shotgunConeCenter);
+  }
+
+  return {
+    enemy,
+    distance: projection,
+    headshot,
+    point: shotgunConeImpactPoint.clone(),
+    normal: shotgunConeNormal.clone(),
+  };
+}
+
+function getShotgunConeRadius(distance) {
+  return shotgunConeBaseRadius + (distance / platformTileSize) * shotgunConeRadiusPerTile;
+}
+
+function getShotgunDamage(distance, headshot) {
+  const baseDamage = headshot ? projectileHeadDamage : projectileBodyDamage;
+  const tiles = distance / platformTileSize;
+  const step = shotgunDamageSteps.find((entry) => tiles <= entry.maxTiles)
+    || shotgunDamageSteps[shotgunDamageSteps.length - 1];
+  return Math.max(1, Math.round(baseDamage * step.multiplier));
 }
 
 function getShotImpactNormal(hit, target) {
@@ -3050,6 +3398,202 @@ function updateAmmoPickupToast(delta) {
   }, 220);
 }
 
+function resetCorpseSearchState() {
+  corpseSearchState = createCorpseSearchState();
+  syncCorpseSearchButton(null);
+}
+
+function updateCorpseSearch(delta) {
+  if (!corpseSearchState.active) {
+    return;
+  }
+
+  if (!characterModel || playerControlState.dead || !corpseSearchState.enemy) {
+    resetCorpseSearchState();
+    return;
+  }
+
+  corpseSearchState.timer = Math.max(0, corpseSearchState.timer - delta);
+  corpseSearchState.animationTimer -= delta;
+  if (corpseSearchState.animationTimer <= 0) {
+    playMovement("PickUp", { restart: true });
+    corpseSearchState.animationTimer = corpseSearchAnimationRestartSeconds;
+  }
+
+  if (corpseSearchState.timer > 0) {
+    return;
+  }
+
+  finishCorpseSearch();
+}
+
+function updateCorpseSearchPrompt() {
+  if (corpseSearchState.active) {
+    corpseSearchState.promptEnemy = null;
+    syncCorpseSearchButton(null);
+    return;
+  }
+
+  const enemy = getNearestSearchableCorpse();
+  corpseSearchState.promptEnemy = enemy;
+  syncCorpseSearchButton(enemy);
+}
+
+function syncCorpseSearchButton(enemy) {
+  if (!corpseSearchButton) {
+    return;
+  }
+
+  const canShow = Boolean(enemy);
+  corpseSearchButton.hidden = !canShow;
+  corpseSearchButton.disabled = !canShow;
+}
+
+function startCorpseSearchFromPrompt() {
+  const enemy = corpseSearchState.promptEnemy || getNearestSearchableCorpse();
+  if (!enemy) {
+    return false;
+  }
+
+  return startCorpseSearch(enemy);
+}
+
+function startCorpseSearch(enemy) {
+  if (!canSearchCorpses() || !isSearchableCorpse(enemy)) {
+    return false;
+  }
+
+  clearManualMovementPreview();
+  clearPlayerMouseButtons();
+  playerControlState.pressedKeys.clear();
+  cameraControlState.pressedKeys.clear();
+  stopMobileJoystick();
+  stopMobileLook();
+  stopMobileFireLook();
+  mobileFireButton?.classList.remove("is-firing");
+
+  enemy.searchInProgress = true;
+  corpseSearchState.active = true;
+  corpseSearchState.enemy = enemy;
+  corpseSearchState.timer = corpseSearchDuration;
+  corpseSearchState.animationTimer = 0;
+  corpseSearchState.promptEnemy = null;
+  syncCorpseSearchButton(null);
+  playMovement("PickUp", { restart: true });
+  return true;
+}
+
+function finishCorpseSearch() {
+  const enemy = corpseSearchState.enemy;
+  const weaponId = Math.random() < corpseSearchFindChance
+    ? pickCorpseSearchWeaponId()
+    : null;
+
+  resetCorpseSearchState();
+
+  if (enemy) {
+    removeSearchedCorpse(enemy);
+  }
+
+  if (weaponId) {
+    addCombatWeaponAmmo(weaponId, corpseSearchAmmoAmount);
+    syncPlayerAmmoHud();
+    showCorpseSearchNotice(`+${corpseSearchAmmoAmount} ${getCombatWeaponConfig(weaponId).label}`);
+  } else {
+    showCorpseSearchNotice("Nada encontrado");
+  }
+}
+
+function showCorpseSearchNotice(message) {
+  setStatus(message, "done");
+  window.setTimeout(() => {
+    if (statusElement.textContent === message && !playerControlState.dead) {
+      hideStatus();
+    }
+  }, 1200);
+}
+
+function pickCorpseSearchWeaponId() {
+  const candidates = getUnlockedCombatWeaponIds().filter((weaponId) => {
+    const config = getCombatWeaponConfig(weaponId);
+    return getCombatWeaponAmmo(weaponId) < config.maxAmmo;
+  });
+  if (!candidates.length) {
+    return null;
+  }
+
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+function getNearestSearchableCorpse() {
+  if (!canSearchCorpses()) {
+    return null;
+  }
+
+  let nearestEnemy = null;
+  let nearestDistanceSq = corpseSearchRadius * corpseSearchRadius;
+  for (const enemy of activeEnemies) {
+    if (!isSearchableCorpse(enemy)) {
+      continue;
+    }
+
+    const distanceSq = (
+      ((characterModel.position.x - enemy.model.position.x) ** 2)
+      + ((characterModel.position.z - enemy.model.position.z) ** 2)
+    );
+    if (distanceSq <= nearestDistanceSq) {
+      nearestEnemy = enemy;
+      nearestDistanceSq = distanceSq;
+    }
+  }
+
+  return nearestEnemy;
+}
+
+function canSearchCorpses() {
+  return Boolean(
+    characterModel
+      && !playerControlState.dead
+      && !cameraControlState.freeCamera
+      && !corpseSearchState.active
+      && areAllUnlockedWeaponsEmpty(),
+  );
+}
+
+function areAllUnlockedWeaponsEmpty() {
+  const weaponIds = getUnlockedCombatWeaponIds();
+  return weaponIds.length > 0 && weaponIds.every((weaponId) => getCombatWeaponAmmo(weaponId) <= 0);
+}
+
+function getUnlockedCombatWeaponIds() {
+  return combatWeaponConfigs
+    .filter((config) => isCombatWeaponUnlocked(config.id))
+    .map((config) => config.id);
+}
+
+function isSearchableCorpse(enemy) {
+  return Boolean(
+    enemy
+      && enemy.type !== "boss"
+      && enemy.state === "dead"
+      && !enemy.searched
+      && !enemy.searchInProgress
+      && enemy.model?.parent
+      && enemy.model.visible,
+  );
+}
+
+function removeSearchedCorpse(enemy) {
+  enemy.searched = true;
+  enemy.searchInProgress = false;
+  enemy.model.visible = false;
+  enemy.model.removeFromParent();
+  if (enemy.healthBar?.sprite) {
+    enemy.healthBar.sprite.visible = false;
+    enemy.healthBar.sprite.removeFromParent();
+  }
+}
+
 function setupFloorLootChest() {
   clearFloorLootObjects();
   if (
@@ -3504,6 +4048,13 @@ function updatePlayerAnimation(isMoving, isRunning, isShooting, isAiming) {
     return;
   }
 
+  if (manualMovementPreviewId) {
+    if (activeMovementId !== manualMovementPreviewId) {
+      playMovement(manualMovementPreviewId);
+    }
+    return;
+  }
+
   const motion = getActiveWeaponAnimationMotion();
   let movementId = defaultMovementId;
   if (isMoving && isShooting && isRunning) {
@@ -3527,10 +4078,19 @@ function updatePlayerAnimation(isMoving, isRunning, isShooting, isAiming) {
   playMovement(movementId);
 }
 
+function setManualMovementPreview(clipName) {
+  manualMovementPreviewId = clipName;
+  playMovement(clipName, { restart: true });
+}
+
+function clearManualMovementPreview() {
+  manualMovementPreviewId = null;
+}
+
 function getActiveWeaponAnimationMotion() {
   if (activeWeapon?.holdStyle === "twoHand") {
     return {
-      walking: "Combo_Walking_A_Ranged_2H_Aiming",
+      walking: "Walking_A",
       running: "Running_HoldingRifle",
       walkingAiming: "Combo_Walking_A_Ranged_2H_Aiming",
       runningAiming: "Combo_Running_B_Ranged_2H_Aiming",
@@ -3538,7 +4098,7 @@ function getActiveWeaponAnimationMotion() {
       runningShooting: "Combo_Running_B_Ranged_2H_Shooting",
       aiming: "Ranged_2H_Aiming",
       shooting: "Ranged_2H_Shooting",
-      holdWhenIdle: true,
+      holdWhenIdle: false,
     };
   }
 
@@ -5335,6 +5895,7 @@ function clearAppliedEnemies() {
   }
 
   clearEnemyCombatIndicators();
+  resetCorpseSearchState();
   activeEnemies = [];
   stageFlowState = createStageFlowState();
   hideStageBanner();
@@ -5716,6 +6277,286 @@ function createStageFlowState() {
   };
 }
 
+function createRunTimingState() {
+  return {
+    started: false,
+    active: false,
+    finished: false,
+    dead: false,
+    resultShown: false,
+    totalStartTime: 0,
+    totalElapsedMs: 0,
+    currentFloorStartTime: 0,
+    currentFloorElapsedMs: 0,
+    activeFloorIndex: 0,
+    floorTimesMs: [],
+    floorCompleted: [],
+  };
+}
+
+function startRunTimer(floorIndex = mapEditorState.activeFloorIndex) {
+  const now = performance.now();
+  const floorCount = getRunFloorCount();
+  runTimingState = {
+    ...createRunTimingState(),
+    started: true,
+    active: true,
+    totalStartTime: now,
+    currentFloorStartTime: now,
+    activeFloorIndex: floorIndex,
+    floorTimesMs: Array.from({ length: floorCount }, () => null),
+    floorCompleted: Array.from({ length: floorCount }, () => false),
+  };
+  syncRunTimerHud();
+}
+
+function startRunFloorTimer(floorIndex, now = performance.now()) {
+  if (!runTimingState.started || runTimingState.dead || runTimingState.finished) {
+    return;
+  }
+
+  ensureRunFloorCapacity();
+  runTimingState.activeFloorIndex = floorIndex;
+  runTimingState.currentFloorStartTime = now;
+  runTimingState.currentFloorElapsedMs = 0;
+}
+
+function recordCurrentFloorTime({ completed = false, now = performance.now() } = {}) {
+  if (!runTimingState.started) {
+    return;
+  }
+
+  ensureRunFloorCapacity();
+  const floorIndex = THREE.MathUtils.clamp(
+    runTimingState.activeFloorIndex,
+    0,
+    Math.max(0, getRunFloorCount() - 1),
+  );
+  if (completed && runTimingState.floorCompleted[floorIndex]) {
+    return;
+  }
+  if (!completed && runTimingState.floorCompleted[floorIndex]) {
+    return;
+  }
+
+  const floorElapsedMs = Math.max(0, now - runTimingState.currentFloorStartTime);
+  runTimingState.floorTimesMs[floorIndex] = floorElapsedMs;
+  runTimingState.floorCompleted[floorIndex] = completed;
+  runTimingState.currentFloorElapsedMs = floorElapsedMs;
+}
+
+function stopRunTimer(outcome, now = performance.now()) {
+  if (!runTimingState.started || (!runTimingState.active && runTimingState.resultShown)) {
+    return;
+  }
+
+  runTimingState.totalElapsedMs = Math.max(0, now - runTimingState.totalStartTime);
+  runTimingState.active = false;
+  runTimingState.dead = outcome === "dead";
+  runTimingState.finished = outcome === "complete";
+  syncRunTimerHud();
+}
+
+function updateRunTimer() {
+  if (!runTimingState.started || !runTimingState.active) {
+    return;
+  }
+
+  const now = performance.now();
+  runTimingState.totalElapsedMs = Math.max(0, now - runTimingState.totalStartTime);
+  runTimingState.currentFloorElapsedMs = Math.max(0, now - runTimingState.currentFloorStartTime);
+  syncRunTimerHud();
+}
+
+function syncRunTimerHud() {
+  if (!runTimerElement) {
+    return;
+  }
+
+  runTimerElement.hidden = !runTimingState.started;
+  runTimerElement.textContent = formatRunTime(runTimingState.totalElapsedMs);
+}
+
+function getRunFloorCount() {
+  return Math.max(1, mapEditorState.floors.length || 1);
+}
+
+function ensureRunFloorCapacity() {
+  const floorCount = getRunFloorCount();
+  while (runTimingState.floorTimesMs.length < floorCount) {
+    runTimingState.floorTimesMs.push(null);
+  }
+  while (runTimingState.floorCompleted.length < floorCount) {
+    runTimingState.floorCompleted.push(false);
+  }
+}
+
+function isLastRunFloor(floorIndex = mapEditorState.activeFloorIndex) {
+  return floorIndex >= getRunFloorCount() - 1;
+}
+
+function finishRun(outcome) {
+  if (!runTimingState.started || runTimingState.resultShown) {
+    return;
+  }
+
+  runTimingState.resultShown = true;
+  const records = updateRunRecords(outcome);
+  renderRunSummary(outcome, records);
+}
+
+function updateRunRecords(outcome) {
+  const records = loadRunRecords();
+  let changed = false;
+  ensureRunFloorCapacity();
+
+  for (let index = 0; index < runTimingState.floorTimesMs.length; index += 1) {
+    if (!runTimingState.floorCompleted[index]) {
+      continue;
+    }
+
+    const runTime = normalizeRecordTime(runTimingState.floorTimesMs[index]);
+    if (runTime === null) {
+      continue;
+    }
+
+    const previous = normalizeRecordTime(records.floorRecordsMs[index]);
+    if (previous === null || runTime < previous) {
+      records.floorRecordsMs[index] = runTime;
+      changed = true;
+    }
+  }
+
+  if (outcome === "complete") {
+    const totalTime = normalizeRecordTime(runTimingState.totalElapsedMs);
+    const previousTotal = normalizeRecordTime(records.totalRecordMs);
+    if (totalTime !== null && (previousTotal === null || totalTime < previousTotal)) {
+      records.totalRecordMs = totalTime;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    saveRunRecords(records);
+  }
+
+  return records;
+}
+
+function loadRunRecords() {
+  const fallback = { floorRecordsMs: [], totalRecordMs: null };
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(runRecordsStorageKey) || "null");
+    if (!parsed || typeof parsed !== "object") {
+      return fallback;
+    }
+
+    return {
+      floorRecordsMs: Array.isArray(parsed.floorRecordsMs)
+        ? parsed.floorRecordsMs.map(normalizeRecordTime)
+        : [],
+      totalRecordMs: normalizeRecordTime(parsed.totalRecordMs),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveRunRecords(records) {
+  try {
+    const floorRecordsMs = records.floorRecordsMs.map(normalizeRecordTime);
+    while (floorRecordsMs.length && floorRecordsMs[floorRecordsMs.length - 1] === null) {
+      floorRecordsMs.pop();
+    }
+    window.localStorage.setItem(runRecordsStorageKey, JSON.stringify({
+      floorRecordsMs,
+      totalRecordMs: normalizeRecordTime(records.totalRecordMs),
+    }));
+  } catch {
+    // Private browsing or storage quotas can block persistence; the run summary still works.
+  }
+}
+
+function normalizeRecordTime(value) {
+  const time = Number(value);
+  return Number.isFinite(time) && time >= 0 ? time : null;
+}
+
+function renderRunSummary(outcome, records = loadRunRecords()) {
+  if (!runSummaryModalElement || !runSummaryBodyElement) {
+    return;
+  }
+
+  if (runSummaryTitleElement) {
+    runSummaryTitleElement.textContent = outcome === "complete" ? "Run Complete" : "Você morreu";
+  }
+
+  const table = document.createElement("table");
+  table.className = "run-summary-table";
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const label of ["Stage", "Current Run", "Record Time"]) {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headRow.append(th);
+  }
+  thead.append(headRow);
+  table.append(thead);
+
+  const tbody = document.createElement("tbody");
+  const floorCount = getRunFloorCount();
+  for (let index = 0; index < floorCount; index += 1) {
+    tbody.append(createRunSummaryRow(
+      `Floor ${index + 1}`,
+      runTimingState.floorTimesMs[index],
+      records.floorRecordsMs[index],
+    ));
+  }
+  tbody.append(createRunSummaryRow("Total Run", runTimingState.totalElapsedMs, records.totalRecordMs));
+  table.append(tbody);
+  runSummaryBodyElement.replaceChildren(table);
+  runSummaryModalElement.hidden = false;
+}
+
+function createRunSummaryRow(label, runTime, recordTime) {
+  const row = document.createElement("tr");
+  const labelCell = document.createElement("td");
+  const runCell = document.createElement("td");
+  const recordCell = document.createElement("td");
+
+  labelCell.textContent = label;
+  runCell.textContent = formatNullableRunTime(runTime);
+  recordCell.textContent = formatNullableRunTime(recordTime);
+  recordCell.className = "run-summary-record";
+
+  row.append(labelCell, runCell, recordCell);
+  return row;
+}
+
+function hideRunSummaryModal() {
+  if (runSummaryModalElement) {
+    runSummaryModalElement.hidden = true;
+  }
+}
+
+function formatNullableRunTime(value) {
+  const time = normalizeRecordTime(value);
+  return time === null ? "-" : formatRunTime(time);
+}
+
+function formatRunTime(milliseconds) {
+  const totalCentiseconds = Math.floor(Math.max(0, Number(milliseconds) || 0) / 10);
+  const centiseconds = totalCentiseconds % 100;
+  const totalSeconds = Math.floor(totalCentiseconds / 100);
+  const seconds = totalSeconds % 60;
+  const minutes = Math.floor(totalSeconds / 60);
+  return `${padRunTime(minutes)}:${padRunTime(seconds)}:${padRunTime(centiseconds)}`;
+}
+
+function padRunTime(value) {
+  return String(Math.max(0, Math.floor(value))).padStart(2, "0");
+}
+
 function updateEnemies(delta) {
   if (!activeEnemies.length) {
     return;
@@ -5824,6 +6665,12 @@ function startStageClear() {
     return;
   }
 
+  const now = performance.now();
+  recordCurrentFloorTime({ completed: true, now });
+  if (isLastRunFloor(mapEditorState.activeFloorIndex)) {
+    stopRunTimer("complete", now);
+  }
+
   stageFlowState.clearActive = true;
   stageFlowState.clearTimer = 2.2;
   showStageBanner("FLOOR CLEAR");
@@ -5834,12 +6681,14 @@ function advanceToNextFloor() {
   const nextFloorIndex = mapEditorState.activeFloorIndex + 1;
   if (nextFloorIndex < mapEditorState.floors.length) {
     loadMapFloorIntoEditor(mapEditorState.floors[nextFloorIndex], nextFloorIndex);
+    startRunFloorTimer(nextFloorIndex);
     showStageBanner(`FLOOR ${nextFloorIndex + 1}`, { duration: 1.6 });
     return;
   }
 
   showStageBanner("FLOOR CLEAR", { duration: 0 });
   stageFlowState.floorComplete = true;
+  finishRun("complete");
 }
 
 function showStageBanner(message, { countdown = false, duration = 0 } = {}) {
@@ -6098,8 +6947,14 @@ function damagePlayer(amount) {
 
   playerControlState.dead = true;
   clearPlayerMouseButtons();
+  resetCorpseSearchState();
   playMovement("Death_A", { restart: true });
-  setStatus("Voce morreu", "error");
+  const now = performance.now();
+  recordCurrentFloorTime({ completed: false, now });
+  stopRunTimer("dead", now);
+  hideStageBanner();
+  setStatus("Você morreu", "error");
+  finishRun("dead");
 }
 
 function damageEnemy(enemy, amount, { source = "generic" } = {}) {
@@ -8007,6 +8862,7 @@ function frameModel(modelBox) {
   const distance = Math.max(distanceForHeight, distanceForWidth);
   cameraControlState.anchorTarget.copy(target);
   cameraControlState.anchorDistance = distance;
+  resetAnchoredCameraCollisionState();
 
   camera.far = Math.max(120, distance * 2.6);
   camera.updateProjectionMatrix();
@@ -8015,6 +8871,13 @@ function frameModel(modelBox) {
   controls.maxDistance = Math.max(18, distance * 1.7);
   applyAnchoredCameraFrame();
   syncCameraControlUI();
+}
+
+function resetAnchoredCameraCollisionState() {
+  cameraControlState.collisionRatio = 1;
+  cameraControlState.collisionHoldActive = false;
+  cameraControlState.lastAnchorTarget.copy(cameraControlState.anchorTarget);
+  cameraControlState.lastAnchorTargetInitialized = true;
 }
 
 function resize() {
@@ -8255,4 +9118,5 @@ function syncCrosshair() {
   const isVisible = canShowCrosshair && (runtimeIsMobile || playerControlState.aiming);
   crosshairElement.classList.toggle("is-visible", isVisible);
   crosshairElement.classList.toggle("is-firing", isVisible && playerControlState.shooting);
+  crosshairElement.classList.toggle("is-shotgun", getActiveCombatWeaponId() === shotgunCombatWeaponId);
 }
