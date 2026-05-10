@@ -176,8 +176,7 @@ const platformCeilingThickness = 0.2;
 const wallOcclusionOpacity = 0.16;
 const cameraCollisionRadius = 1.05;
 const cameraCollisionWallPadding = 0.42;
-const cameraCollisionHoldReturnDamping = 9;
-const cameraCollisionHoldSnapDistance = 0.08;
+const cameraCollisionReturnDamping = 12;
 const cameraCollisionSearchSteps = 14;
 const cameraCollisionSearchIterations = 8;
 const cameraCloseViewRatioStart = 0.42;
@@ -243,6 +242,9 @@ const projectileHeadDamage = 10;
 const shotgunMaxDistance = platformTileSize * 5;
 const shotgunConeBaseRadius = 0.26;
 const shotgunConeRadiusPerTile = 0.34;
+const shotgunTrailParticleCount = 28;
+const shotgunTrailParticleDuration = 0.16;
+const shotgunTrailParticleBaseScale = 0.11;
 const shotgunDamageSteps = [
   { maxTiles: 1, multiplier: 4 },
   { maxTiles: 2, multiplier: 3 },
@@ -724,6 +726,7 @@ let enemyGroup = null;
 let activeEnemies = [];
 let activeImpactEffects = [];
 let activeMuzzleFlashes = [];
+let activeShotgunTrailParticles = [];
 let activeDamageNumbers = [];
 let activeAmmoPickups = [];
 let activeLootChest = null;
@@ -766,6 +769,11 @@ const shotgunConeImpactPoint = new THREE.Vector3();
 const shotgunConeNormal = new THREE.Vector3();
 const shotgunConeBoxSize = new THREE.Vector3();
 const shotgunEnemyHits = [];
+const shotgunTrailOrigin = new THREE.Vector3();
+const shotgunTrailRight = new THREE.Vector3();
+const shotgunTrailUp = new THREE.Vector3();
+const shotgunTrailRadial = new THREE.Vector3();
+const shotgunTrailVelocity = new THREE.Vector3();
 const damageNumberPosition = new THREE.Vector3();
 const damageNumberCameraOffset = new THREE.Vector3();
 const ammoPickupPosition = new THREE.Vector3();
@@ -781,8 +789,6 @@ const cameraCollisionDirection = new THREE.Vector3();
 const cameraCollisionRayDirection = new THREE.Vector3();
 const cameraCollisionResolvedPosition = new THREE.Vector3();
 const cameraCollisionProbePosition = new THREE.Vector3();
-const cameraCollisionHeldCandidate = new THREE.Vector3();
-const cameraCollisionAnchorDelta = new THREE.Vector3();
 const cameraCloseLookDirection = new THREE.Vector3();
 const cameraCloseLookTarget = new THREE.Vector3();
 const cameraBlendedLookTarget = new THREE.Vector3();
@@ -803,6 +809,7 @@ const collisionDebugBoundsSize = new THREE.Vector3();
 const wallOcclusionHitSet = new Set();
 const impactEffectPool = [];
 const muzzleFlashPool = [];
+const shotgunTrailParticlePool = [];
 let mapEditorSyncTimer = 0;
 let mapEditorSyncPending = false;
 let perfOverlayState = null;
@@ -845,6 +852,14 @@ const muzzleFlashMaterial = new THREE.MeshBasicMaterial({
   color: 0xfff1c1,
   transparent: true,
   opacity: 0.96,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const shotgunTrailParticleGeometry = new THREE.SphereGeometry(0.055, 6, 4);
+const shotgunTrailParticleMaterial = new THREE.MeshBasicMaterial({
+  color: 0xffdf8e,
+  transparent: true,
+  opacity: 0.82,
   blending: THREE.AdditiveBlending,
   depthWrite: false,
 });
@@ -1967,9 +1982,6 @@ function createCameraControlState() {
     anchorTarget: new THREE.Vector3(0, 2.1, 0),
     anchorDistance: anchoredCameraPreset.cameraOffset.distanceTo(anchoredCameraPreset.targetOffset),
     collisionRatio: 1,
-    collisionHoldActive: false,
-    lastAnchorTarget: new THREE.Vector3(0, 2.1, 0),
-    lastAnchorTargetInitialized: false,
     pressedKeys: new Set(),
   };
 }
@@ -2111,11 +2123,6 @@ function applyAnchoredCameraFrame(delta = 1 / 60) {
     return;
   }
 
-  if (!cameraControlState.lastAnchorTargetInitialized) {
-    cameraControlState.lastAnchorTarget.copy(cameraControlState.anchorTarget);
-    cameraControlState.lastAnchorTargetInitialized = true;
-  }
-
   const offset = anchoredCameraManualOffset.set(
     cameraControlState.offset.x,
     cameraControlState.offset.y,
@@ -2138,7 +2145,6 @@ function applyAnchoredCameraFrame(delta = 1 / 60) {
   camera.position.copy(resolvedPosition);
   camera.lookAt(viewTarget);
   cameraControlState.anchorDistance = camera.position.distanceTo(target);
-  cameraControlState.lastAnchorTarget.copy(cameraControlState.anchorTarget);
   camera.updateProjectionMatrix();
   controls.update();
 }
@@ -2176,68 +2182,35 @@ function resolveAnchoredCameraPosition(origin, desiredPosition, delta) {
 
   if (idealDistance <= 0.001 || !mapEditorState.appliedIsCovered || mapEditorState.appliedTiles.size === 0) {
     cameraControlState.collisionRatio = 1;
-    cameraControlState.collisionHoldActive = false;
     return cameraCollisionResolvedPosition.copy(desiredPosition);
   }
 
   const wallRatio = getWallCollisionCameraRatio(origin, idealDistance);
   const tileRatio = getAppliedTileCameraRatio(origin);
   const allowedRatio = Math.min(wallRatio, tileRatio);
-  const smoothingDelta = Number.isFinite(delta) && delta > 0 ? delta : 1 / 60;
+  const currentRatio = Number.isFinite(cameraControlState.collisionRatio)
+    ? cameraControlState.collisionRatio
+    : 1;
 
-  if (allowedRatio < 0.995) {
-    const heldPosition = getAnchoredCameraHoldPosition(origin);
-    if (heldPosition) {
-      cameraControlState.collisionHoldActive = true;
-      cameraControlState.collisionRatio = 1;
-      return cameraCollisionResolvedPosition.copy(heldPosition);
-    }
-
-    cameraControlState.collisionHoldActive = false;
+  if (allowedRatio < currentRatio) {
     cameraControlState.collisionRatio = allowedRatio;
-    return cameraCollisionResolvedPosition
-      .copy(origin)
-      .addScaledVector(cameraCollisionDirection, allowedRatio);
-  }
+  } else {
+    const smoothingDelta = Number.isFinite(delta) && delta > 0 ? delta : 1 / 60;
+    cameraControlState.collisionRatio = THREE.MathUtils.damp(
+      currentRatio,
+      allowedRatio,
+      cameraCollisionReturnDamping,
+      smoothingDelta,
+    );
 
-  cameraControlState.collisionRatio = 1;
-  if (cameraControlState.collisionHoldActive) {
-    const returnRatio = 1 - Math.exp(-cameraCollisionHoldReturnDamping * smoothingDelta);
-    cameraCollisionResolvedPosition.copy(camera.position).lerp(desiredPosition, returnRatio);
-    if (!canUseAnchoredCameraPosition(cameraCollisionResolvedPosition)) {
-      return cameraCollisionResolvedPosition.copy(camera.position);
-    }
-
-    if (cameraCollisionResolvedPosition.distanceToSquared(desiredPosition) <= cameraCollisionHoldSnapDistance ** 2) {
-      cameraControlState.collisionHoldActive = false;
-      return cameraCollisionResolvedPosition.copy(desiredPosition);
-    }
-
-    return cameraCollisionResolvedPosition;
-  }
-
-  return cameraCollisionResolvedPosition.copy(desiredPosition);
-}
-
-function getAnchoredCameraHoldPosition(origin) {
-  cameraCollisionAnchorDelta.copy(origin).sub(cameraControlState.lastAnchorTarget);
-  if (cameraCollisionAnchorDelta.lengthSq() > 0.000001) {
-    cameraCollisionHeldCandidate.copy(camera.position).add(cameraCollisionAnchorDelta);
-    cameraCollisionHeldCandidate.y = camera.position.y;
-    if (canUseAnchoredCameraPosition(cameraCollisionHeldCandidate)) {
-      return cameraCollisionHeldCandidate;
+    if (Math.abs(cameraControlState.collisionRatio - allowedRatio) < 0.001) {
+      cameraControlState.collisionRatio = allowedRatio;
     }
   }
 
-  return canUseAnchoredCameraPosition(camera.position) ? camera.position : null;
-}
-
-function canUseAnchoredCameraPosition(position) {
-  if (!mapEditorState.appliedIsCovered || mapEditorState.appliedTiles.size === 0) {
-    return true;
-  }
-
-  return isCameraPositionInsideAppliedTiles(position, true);
+  return cameraCollisionResolvedPosition
+    .copy(origin)
+    .addScaledVector(cameraCollisionDirection, cameraControlState.collisionRatio);
 }
 
 function getWallCollisionCameraRatio(origin, idealDistance) {
@@ -2798,14 +2771,17 @@ function firePlayerSingleProjectile() {
 function firePlayerShotgunProjectile() {
   camera.getWorldDirection(projectileDirection).normalize();
   createMuzzleFlash(projectileDirection);
+  createShotgunConeTrail(projectileDirection);
+
+  const cameraShotgunMaxDistance = getShotgunCameraMaxDistance();
   enemyProjectileRaycaster.set(camera.position, projectileDirection);
   enemyProjectileRaycaster.near = 0;
-  enemyProjectileRaycaster.far = shotgunMaxDistance;
+  enemyProjectileRaycaster.far = cameraShotgunMaxDistance;
 
   const wallHits = wallOccluderList.length
     ? enemyProjectileRaycaster.intersectObjects(wallOccluderList, false)
     : [];
-  const closestWallDistance = Math.min(wallHits[0]?.distance ?? Infinity, shotgunMaxDistance);
+  const closestWallDistance = Math.min(wallHits[0]?.distance ?? Infinity, cameraShotgunMaxDistance);
   const enemyHits = getShotgunEnemyHits(closestWallDistance);
 
   if (enemyHits.length > 0) {
@@ -2818,13 +2794,20 @@ function firePlayerShotgunProjectile() {
     return true;
   }
 
-  if (wallHits[0] && wallHits[0].distance <= shotgunMaxDistance) {
+  if (wallHits[0] && wallHits[0].distance <= cameraShotgunMaxDistance) {
     const wallHit = wallHits[0];
     getShotImpactNormal(wallHit, shotImpactNormal);
     createImpactEffect(wallHit.point, shotImpactNormal, { hitEnemy: false });
   }
 
   return true;
+}
+
+function getShotgunCameraMaxDistance() {
+  const playerDistanceFromCamera = characterModel
+    ? camera.position.distanceTo(characterModel.position)
+    : 0;
+  return shotgunMaxDistance + playerDistanceFromCamera + platformTileSize;
 }
 
 function getClosestProjectileEnemyHit(maxDistance) {
@@ -2883,6 +2866,11 @@ function getShotgunConeHitForBox(enemy, box, maxDistance, headshot) {
   box.getCenter(shotgunConeCenter);
   box.getSize(shotgunConeBoxSize);
 
+  const playerDistance = getShotgunPlayerDistanceToEnemy(enemy);
+  if (playerDistance > shotgunMaxDistance) {
+    return null;
+  }
+
   const targetRadius = headshot
     ? enemy.hitbox.headRadius * 1.15
     : Math.max(enemy.hitbox.bodyRadius, shotgunConeBoxSize.y * 0.48);
@@ -2916,11 +2904,23 @@ function getShotgunConeHitForBox(enemy, box, maxDistance, headshot) {
 
   return {
     enemy,
-    distance: projection,
+    distance: playerDistance,
+    projection,
     headshot,
     point: shotgunConeImpactPoint.clone(),
     normal: shotgunConeNormal.clone(),
   };
+}
+
+function getShotgunPlayerDistanceToEnemy(enemy) {
+  if (!characterModel || !enemy?.model) {
+    return Infinity;
+  }
+
+  return Math.hypot(
+    enemy.model.position.x - characterModel.position.x,
+    enemy.model.position.z - characterModel.position.z,
+  );
 }
 
 function getShotgunConeRadius(distance) {
@@ -3060,6 +3060,10 @@ function prewarmProjectileEffectPools() {
   for (let index = muzzleFlashPool.length; index < performanceProfile.prewarmMuzzleFlashes; index += 1) {
     muzzleFlashPool.push(createMuzzleFlashEntry());
   }
+
+  for (let index = shotgunTrailParticlePool.length; index < shotgunTrailParticleCount; index += 1) {
+    shotgunTrailParticlePool.push(createShotgunTrailParticleEntry());
+  }
 }
 
 function acquireImpactEffect() {
@@ -3138,6 +3142,34 @@ function createMuzzleFlashEntry() {
   };
 }
 
+function acquireShotgunTrailParticle() {
+  return shotgunTrailParticlePool.pop() || createShotgunTrailParticleEntry();
+}
+
+function releaseShotgunTrailParticle(particle) {
+  particle.mesh.visible = false;
+  particle.mesh.material.opacity = 0;
+  particle.age = 0;
+  particle.velocity.set(0, 0, 0);
+  shotgunTrailParticlePool.push(particle);
+}
+
+function createShotgunTrailParticleEntry() {
+  const mesh = new THREE.Mesh(shotgunTrailParticleGeometry, shotgunTrailParticleMaterial.clone());
+  mesh.name = "ShotgunConeParticle";
+  mesh.visible = false;
+  mesh.frustumCulled = true;
+  scene.add(mesh);
+
+  return {
+    mesh,
+    velocity: new THREE.Vector3(),
+    age: 0,
+    duration: shotgunTrailParticleDuration,
+    baseScale: shotgunTrailParticleBaseScale,
+  };
+}
+
 function createImpactEffect(point, normal, { hitEnemy = false } = {}) {
   const effect = acquireImpactEffect();
   const { mesh, light } = effect;
@@ -3188,6 +3220,79 @@ function createMuzzleFlash(direction) {
   activeMuzzleFlashes.push(flash);
 }
 
+function createShotgunConeTrail(direction) {
+  if (!characterModel) {
+    return;
+  }
+
+  shotgunTrailOrigin.copy(muzzleFlashPosition);
+  const trailDistance = getShotgunTrailDistance(direction);
+  if (trailDistance <= 0.1) {
+    return;
+  }
+
+  setShotgunTrailBasis(direction);
+
+  for (let index = 0; index < shotgunTrailParticleCount; index += 1) {
+    const progress = 0.08 + Math.random() * 0.92;
+    const distance = trailDistance * progress;
+    const coneRadius = getShotgunConeRadius(distance) * 0.7;
+    const angle = Math.random() * Math.PI * 2;
+    const radius = Math.sqrt(Math.random()) * coneRadius;
+    shotgunTrailRadial
+      .copy(shotgunTrailRight)
+      .multiplyScalar(Math.cos(angle) * radius)
+      .addScaledVector(shotgunTrailUp, Math.sin(angle) * radius);
+
+    const particle = acquireShotgunTrailParticle();
+    const { mesh } = particle;
+    mesh.position
+      .copy(shotgunTrailOrigin)
+      .addScaledVector(direction, distance)
+      .add(shotgunTrailRadial);
+    mesh.scale.setScalar(
+      shotgunTrailParticleBaseScale
+        * (0.7 + progress * 1.25)
+        * (0.75 + Math.random() * 0.5),
+    );
+    mesh.material.opacity = 0.78;
+    mesh.visible = true;
+
+    shotgunTrailVelocity.copy(direction).multiplyScalar(4.5 + Math.random() * 5.5);
+    if (shotgunTrailRadial.lengthSq() > 0.0001) {
+      shotgunTrailVelocity.addScaledVector(shotgunTrailRadial.normalize(), 1.4 + progress * 2.2);
+    }
+    particle.velocity.copy(shotgunTrailVelocity);
+    particle.age = 0;
+    particle.duration = shotgunTrailParticleDuration * (0.75 + Math.random() * 0.5);
+    particle.baseScale = mesh.scale.x;
+    activeShotgunTrailParticles.push(particle);
+  }
+}
+
+function getShotgunTrailDistance(direction) {
+  if (!wallOccluderList.length) {
+    return shotgunMaxDistance;
+  }
+
+  enemyProjectileRaycaster.set(shotgunTrailOrigin, direction);
+  enemyProjectileRaycaster.near = 0.05;
+  enemyProjectileRaycaster.far = shotgunMaxDistance;
+  const [firstHit] = enemyProjectileRaycaster.intersectObjects(wallOccluderList, false);
+  return Math.min(firstHit?.distance ?? shotgunMaxDistance, shotgunMaxDistance);
+}
+
+function setShotgunTrailBasis(direction) {
+  shotgunTrailRight.crossVectors(direction, camera.up);
+  if (shotgunTrailRight.lengthSq() <= 0.0001) {
+    shotgunTrailRight.set(1, 0, 0);
+  } else {
+    shotgunTrailRight.normalize();
+  }
+
+  shotgunTrailUp.crossVectors(shotgunTrailRight, direction).normalize();
+}
+
 function getMuzzleFlashPosition(direction, target) {
   const muzzleLocalCenter = currentHeldItem?.userData?.muzzleLocalCenter;
   if (currentHeldItem && muzzleLocalCenter) {
@@ -3212,6 +3317,7 @@ function getMuzzleFlashPosition(direction, target) {
 function updateImpactEffects(delta) {
   if (!activeImpactEffects.length) {
     updateMuzzleFlashes(delta);
+    updateShotgunTrailParticles(delta);
     return;
   }
 
@@ -3234,6 +3340,7 @@ function updateImpactEffects(delta) {
   }
 
   updateMuzzleFlashes(delta);
+  updateShotgunTrailParticles(delta);
 }
 
 function updateMuzzleFlashes(delta) {
@@ -3260,6 +3367,28 @@ function updateMuzzleFlashes(delta) {
   }
 }
 
+function updateShotgunTrailParticles(delta) {
+  if (!activeShotgunTrailParticles.length) {
+    return;
+  }
+
+  for (let index = activeShotgunTrailParticles.length - 1; index >= 0; index -= 1) {
+    const particle = activeShotgunTrailParticles[index];
+    particle.age += delta;
+    const progress = THREE.MathUtils.clamp(particle.age / particle.duration, 0, 1);
+    const fade = 1 - progress;
+
+    particle.mesh.position.addScaledVector(particle.velocity, delta);
+    particle.mesh.scale.setScalar(particle.baseScale * (1 + progress * 0.9));
+    particle.mesh.material.opacity = 0.78 * fade;
+
+    if (progress >= 1) {
+      activeShotgunTrailParticles.splice(index, 1);
+      releaseShotgunTrailParticle(particle);
+    }
+  }
+}
+
 function clearImpactEffects() {
   for (const effect of activeImpactEffects) {
     releaseImpactEffect(effect);
@@ -3272,6 +3401,12 @@ function clearImpactEffects() {
   }
 
   activeMuzzleFlashes = [];
+
+  for (const particle of activeShotgunTrailParticles) {
+    releaseShotgunTrailParticle(particle);
+  }
+
+  activeShotgunTrailParticles = [];
 }
 
 function trySpawnAmmoDrop(enemy) {
@@ -8862,7 +8997,6 @@ function frameModel(modelBox) {
   const distance = Math.max(distanceForHeight, distanceForWidth);
   cameraControlState.anchorTarget.copy(target);
   cameraControlState.anchorDistance = distance;
-  resetAnchoredCameraCollisionState();
 
   camera.far = Math.max(120, distance * 2.6);
   camera.updateProjectionMatrix();
@@ -8871,13 +9005,6 @@ function frameModel(modelBox) {
   controls.maxDistance = Math.max(18, distance * 1.7);
   applyAnchoredCameraFrame();
   syncCameraControlUI();
-}
-
-function resetAnchoredCameraCollisionState() {
-  cameraControlState.collisionRatio = 1;
-  cameraControlState.collisionHoldActive = false;
-  cameraControlState.lastAnchorTarget.copy(cameraControlState.anchorTarget);
-  cameraControlState.lastAnchorTargetInitialized = true;
 }
 
 function resize() {

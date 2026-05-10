@@ -26,7 +26,8 @@ Observacao: a shotgun nasce com 10 balas quando e pega no bau, mas o limite maxi
 ### Dano e alcance
 
 - Pistola: 2 de dano no corpo e 10 no headshot.
-- Shotgun: alcance maximo de 5 tiles, com mira em argola para indicar dispersao.
+- Shotgun: alcance maximo de 5 tiles medidos do personagem ate o inimigo, com mira em argola para indicar dispersao.
+- O cone da shotgun segue a mira, mas as particulas visuais saem da arma do personagem.
 - Shotgun a 1 tile: dano equivalente a 4 tiros de pistola.
 - Shotgun a 2 tiles: dano equivalente a 3 tiros de pistola.
 - Shotgun a 3 ou 4 tiles: dano equivalente a 1 tiro de pistola.
