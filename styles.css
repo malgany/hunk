@@ -1971,6 +1971,42 @@ body.is-runtime-mobile .mobile-fire-button.is-firing {
     visibility 180ms ease;
 }
 
+body.is-scene-loading .status {
+  z-index: 18;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  width: auto;
+  max-width: none;
+  border: 0;
+  border-radius: 0;
+  padding: 24px;
+  background: #000;
+  color: #f3efe1;
+  font-size: clamp(1rem, 2.8vw, 1.45rem);
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  backdrop-filter: none;
+  transform: none;
+}
+
+body.is-scene-loading .status__text {
+  text-shadow: 0 0 18px rgb(243 239 225 / 34%);
+  animation: loadingTextPulse 1.35s ease-in-out infinite;
+}
+
+@keyframes loadingTextPulse {
+  0%,
+  100% {
+    opacity: 0.58;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
 .status.is-hidden {
   visibility: hidden;
   opacity: 0;

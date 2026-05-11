@@ -26,9 +26,26 @@
           </h1>
           <div class="start-actions">
             <button class="start-button" id="startButton" type="button">PRESS START</button>
+            <button class="start-option-button" data-start-records-open type="button">Records</button>
             <button class="start-option-button" data-options-open="start" type="button">Options</button>
           </div>
         </div>
+      </div>
+      <div
+        class="run-summary-modal start-records-modal"
+        data-start-records-modal
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="startRecordsTitle"
+        hidden
+      >
+        <section class="run-summary-card" aria-label="Records">
+          <h2 class="run-summary-title" id="startRecordsTitle">Records</h2>
+          <div class="run-summary-body" data-start-records-body></div>
+          <div class="run-summary-actions">
+            <button class="run-summary-button run-summary-button--secondary" data-start-records-close type="button">Fechar</button>
+          </div>
+        </section>
       </div>
     </div>
     <div
@@ -322,7 +339,9 @@
         </button>
         <div class="damage-flash" data-damage-flash aria-hidden="true"></div>
         <div class="stage-banner" data-stage-banner hidden></div>
-        <div class="status" id="status" role="status">Carregando modelo...</div>
+        <div class="status" id="status" role="status">
+          <span class="status__text" id="statusText">Carregando modelo...</span>
+        </div>
         <div
           class="run-summary-modal"
           data-run-summary-modal

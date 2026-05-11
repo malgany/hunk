@@ -7,6 +7,7 @@ import { defaultMapConfig } from "./map-config.js";
 
 const sceneElement = document.querySelector("[data-scene]");
 const statusElement = document.querySelector("#status");
+const statusTextElement = document.querySelector("#statusText");
 const crosshairElement = document.querySelector("[data-crosshair]");
 const phoneShellElement = document.querySelector(".phone-shell");
 const healthHudElement = document.querySelector("[data-health-hud]");
@@ -22,6 +23,10 @@ const runTimerElement = document.querySelector("[data-run-timer]");
 const runSummaryModalElement = document.querySelector("[data-run-summary-modal]");
 const runSummaryTitleElement = document.querySelector("[data-run-summary-title]");
 const runSummaryBodyElement = document.querySelector("[data-run-summary-body]");
+const startRecordsOpenButton = document.querySelector("[data-start-records-open]");
+const startRecordsModalElement = document.querySelector("[data-start-records-modal]");
+const startRecordsBodyElement = document.querySelector("[data-start-records-body]");
+const startRecordsCloseButton = document.querySelector("[data-start-records-close]");
 const restartRunButton = document.querySelector("[data-restart-run-button]");
 const exitRunButton = document.querySelector("[data-exit-run-button]");
 const optionsModalElement = document.querySelector("[data-options-modal]");
@@ -802,6 +807,7 @@ let ammoReloadSound = null;
 let floorMusicBuffers = [];
 let floorMusicSound = null;
 let activeFloorMusicIndex = null;
+let floorMusicPausedForOptions = false;
 let activeEnemies = [];
 let activeImpactEffects = [];
 let activeMuzzleFlashes = [];
@@ -1290,7 +1296,7 @@ function applyMusicOptionVolume() {
     return;
   }
 
-  if (isRunMusicAllowed()) {
+  if (isRunMusicAllowed() && !isGameplayOptionsMenuOpen()) {
     playFloorMusicForCurrentFloor();
     return;
   }
@@ -1354,6 +1360,39 @@ function stopFloorMusic() {
   if (floorMusicSound?.isPlaying) {
     floorMusicSound.stop();
   }
+  floorMusicPausedForOptions = false;
+}
+
+function pauseFloorMusicForOptions() {
+  if (!floorMusicSound?.isPlaying) {
+    floorMusicPausedForOptions = false;
+    return;
+  }
+
+  if (typeof floorMusicSound.pause === "function") {
+    floorMusicSound.pause();
+  } else {
+    floorMusicSound.stop();
+  }
+  floorMusicPausedForOptions = true;
+}
+
+function resumeFloorMusicAfterOptions() {
+  const shouldResume = floorMusicPausedForOptions;
+  floorMusicPausedForOptions = false;
+  if (!isRunMusicAllowed() || getMusicVolume() <= 0) {
+    return;
+  }
+
+  if (shouldResume && floorMusicSound && !floorMusicSound.isPlaying) {
+    floorMusicSound.setVolume(getMusicVolume());
+    floorMusicSound.play();
+    return;
+  }
+
+  if (!floorMusicSound?.isPlaying) {
+    playFloorMusicForCurrentFloor();
+  }
 }
 
 function getFloorMusicIndex(floorIndex) {
@@ -1367,6 +1406,10 @@ function getFloorMusicIndex(floorIndex) {
 
 function isRunMusicAllowed() {
   return Boolean(sceneReady && runTimingState.started && !runTimingState.resultShown);
+}
+
+function isGameplayOptionsMenuOpen() {
+  return Boolean(optionsMenuState.isOpen && optionsMenuState.context === "game");
 }
 
 function createSewerMaterialOptions(textureGroups) {
@@ -1554,6 +1597,7 @@ function showStartScreenOverlay() {
 
 async function loadScene() {
   try {
+    showSceneLoadingOverlay();
     setStatus("Carregando modelo e movimentos...");
     setMovementStatus("Carregando");
     setWeaponStatus("Arma: carregando");
@@ -1596,6 +1640,7 @@ async function loadScene() {
     sceneReady = true;
     await startGameplayRun();
 
+    hideSceneLoadingOverlay();
     setStatus("Carregado", "done");
     syncWeaponSlotHud();
     syncPlayerAmmoHud();
@@ -1603,6 +1648,7 @@ async function loadScene() {
     window.setTimeout(() => hideStatus(), 550);
   } catch (error) {
     console.error(error);
+    hideSceneLoadingOverlay();
     setStatus("Nao foi possivel carregar o modelo", "error");
     setMovementStatus("Erro ao carregar");
     sceneLoadStarted = false;
@@ -1611,6 +1657,14 @@ async function loadScene() {
     }
     syncCrosshair();
   }
+}
+
+function showSceneLoadingOverlay() {
+  document.body.classList.add("is-scene-loading");
+}
+
+function hideSceneLoadingOverlay() {
+  document.body.classList.remove("is-scene-loading");
 }
 
 function loadGltf(url) {
@@ -2082,6 +2136,23 @@ function setupRunSummaryControls() {
   exitRunButton?.addEventListener("click", () => {
     void exitRunToStart();
   });
+  startRecordsOpenButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openStartRecordsModal();
+  });
+  startRecordsCloseButton?.addEventListener("click", closeStartRecordsModal);
+  startRecordsModalElement?.addEventListener("click", (event) => {
+    if (event.target === startRecordsModalElement) {
+      closeStartRecordsModal();
+    }
+  });
+  startRecordsModalElement?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeStartRecordsModal();
+    }
+  });
   syncRunTimerHud();
 }
 
@@ -2101,17 +2172,17 @@ function setupOptionsControls() {
 
   optionsCloseButton?.addEventListener("click", closeOptionsMenu);
   optionsModalElement?.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" || (!runtimeIsMobile && event.key.toLowerCase() === "s")) {
+    if (event.key === "Escape") {
       event.preventDefault();
       closeOptionsMenu();
     }
   });
   optionsRestartButton?.addEventListener("click", () => {
-    closeOptionsMenu();
+    closeOptionsMenu({ resumeMusic: false });
     void restartRun();
   });
   optionsExitButton?.addEventListener("click", () => {
-    closeOptionsMenu();
+    closeOptionsMenu({ resumeMusic: false });
     void exitRunToStart();
   });
   musicVolumeInput?.addEventListener("input", () => {
@@ -2135,6 +2206,7 @@ function openOptionsMenu(context = "game") {
   }
   if (context === "game") {
     stopGameplayInputForRunSummary();
+    pauseFloorMusicForOptions();
   }
   syncOptionsControls();
   syncCrosshair();
@@ -2143,12 +2215,24 @@ function openOptionsMenu(context = "game") {
   });
 }
 
-function closeOptionsMenu() {
+function closeOptionsMenu({ resumeMusic = true } = {}) {
+  const wasGameMenu = optionsMenuState.context === "game";
   optionsMenuState.isOpen = false;
   if (optionsModalElement) {
     optionsModalElement.hidden = true;
   }
   syncCrosshair();
+  if (resumeMusic && wasGameMenu) {
+    resumeFloorMusicAfterOptions();
+  }
+}
+
+function canOpenGameplayOptionsMenu() {
+  return Boolean(
+    !runtimeIsMobile
+    && document.body.classList.contains("has-started")
+    && !runTimingState.resultShown,
+  );
 }
 
 function setOptionVolume(key, value) {
@@ -3242,14 +3326,14 @@ function handleCameraKeyDown(event) {
 
   const key = event.key.toLowerCase();
   if (optionsMenuState.isOpen) {
-    if (key === "escape" || (!runtimeIsMobile && key === "s")) {
+    if (key === "escape") {
       event.preventDefault();
       closeOptionsMenu();
     }
     return;
   }
 
-  if (!runtimeIsMobile && key === "s") {
+  if (key === "escape" && canOpenGameplayOptionsMenu()) {
     event.preventDefault();
     openOptionsMenu("game");
     return;
@@ -4612,7 +4696,7 @@ function finishCorpseSearch() {
 function showCorpseSearchNotice(message) {
   setStatus(message, "done");
   window.setTimeout(() => {
-    if (statusElement.textContent === message && !playerControlState.dead) {
+    if (getStatusMessage() === message && !playerControlState.dead) {
       hideStatus();
     }
   }, 1200);
@@ -7581,11 +7665,46 @@ function renderRunSummary(outcome, records = loadRunRecords(), recordResult = nu
     runSummaryTitleElement.textContent = outcome === "complete" ? "Run Complete" : "Você morreu";
   }
 
+  const table = createRunRecordsTable({
+    records,
+    includeCurrentRun: true,
+    recordResult,
+  });
+  runSummaryBodyElement.replaceChildren(table);
+  runSummaryModalElement.hidden = false;
+}
+
+function openStartRecordsModal() {
+  if (!startRecordsModalElement || !startRecordsBodyElement) {
+    return;
+  }
+
+  startRecordsBodyElement.replaceChildren(createRunRecordsTable({
+    records: loadRunRecords(),
+    includeCurrentRun: false,
+  }));
+  startRecordsModalElement.hidden = false;
+  window.requestAnimationFrame(() => {
+    startRecordsCloseButton?.focus?.();
+  });
+}
+
+function closeStartRecordsModal() {
+  if (!startRecordsModalElement) {
+    return;
+  }
+
+  startRecordsModalElement.hidden = true;
+  startRecordsOpenButton?.focus?.();
+}
+
+function createRunRecordsTable({ records, includeCurrentRun = true, recordResult = null } = {}) {
   const table = document.createElement("table");
   table.className = "run-summary-table";
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
-  for (const label of ["Stage", "Current Run", "Record Time"]) {
+  const labels = includeCurrentRun ? ["Stage", "Current Run", "Record Time"] : ["Stage", "Record Time"];
+  for (const label of labels) {
     const th = document.createElement("th");
     th.textContent = label;
     headRow.append(th);
@@ -7594,39 +7713,44 @@ function renderRunSummary(outcome, records = loadRunRecords(), recordResult = nu
   table.append(thead);
 
   const tbody = document.createElement("tbody");
-  const floorCount = getRunFloorCount();
+  const floorCount = Math.max(getRunFloorCount(), records?.floorRecordsMs?.length || 0);
   for (let index = 0; index < floorCount; index += 1) {
-    tbody.append(createRunSummaryRow(
-      `Floor ${index + 1}`,
-      runTimingState.floorTimesMs[index],
-      records.floorRecordsMs[index],
-      recordResult?.improvedFloorIndexes?.has?.(index),
-    ));
+    tbody.append(createRunSummaryRow({
+      label: `Floor ${index + 1}`,
+      runTime: runTimingState.floorTimesMs[index],
+      recordTime: records?.floorRecordsMs?.[index],
+      improvedRecord: recordResult?.improvedFloorIndexes?.has?.(index),
+      includeCurrentRun,
+    }));
   }
-  tbody.append(createRunSummaryRow(
-    "Total Run",
-    runTimingState.totalElapsedMs,
-    records.totalRecordMs,
-    Boolean(recordResult?.improvedTotal),
-  ));
+  tbody.append(createRunSummaryRow({
+    label: "Total Run",
+    runTime: runTimingState.totalElapsedMs,
+    recordTime: records?.totalRecordMs,
+    improvedRecord: Boolean(recordResult?.improvedTotal),
+    includeCurrentRun,
+  }));
   table.append(tbody);
-  runSummaryBodyElement.replaceChildren(table);
-  runSummaryModalElement.hidden = false;
+  return table;
 }
 
-function createRunSummaryRow(label, runTime, recordTime, improvedRecord = false) {
+function createRunSummaryRow({ label, runTime, recordTime, improvedRecord = false, includeCurrentRun = true } = {}) {
   const row = document.createElement("tr");
   const labelCell = document.createElement("td");
-  const runCell = document.createElement("td");
   const recordCell = document.createElement("td");
 
   labelCell.textContent = label;
-  runCell.textContent = formatNullableRunTime(runTime);
   recordCell.textContent = formatNullableRunTime(recordTime);
   recordCell.className = "run-summary-record";
   recordCell.classList.toggle("is-new-record", improvedRecord);
 
-  row.append(labelCell, runCell, recordCell);
+  row.append(labelCell);
+  if (includeCurrentRun) {
+    const runCell = document.createElement("td");
+    runCell.textContent = formatNullableRunTime(runTime);
+    row.append(runCell);
+  }
+  row.append(recordCell);
   return row;
 }
 
@@ -10301,9 +10425,13 @@ function recordProjectileShotPerf(startTime) {
 }
 
 function setStatus(message, state = "loading") {
-  statusElement.textContent = message;
+  statusTextElement.textContent = message;
   statusElement.classList.toggle("is-error", state === "error");
   statusElement.classList.remove("is-hidden");
+}
+
+function getStatusMessage() {
+  return statusTextElement.textContent;
 }
 
 function setMovementStatus(message) {
