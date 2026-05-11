@@ -24,6 +24,16 @@ const runSummaryTitleElement = document.querySelector("[data-run-summary-title]"
 const runSummaryBodyElement = document.querySelector("[data-run-summary-body]");
 const restartRunButton = document.querySelector("[data-restart-run-button]");
 const exitRunButton = document.querySelector("[data-exit-run-button]");
+const optionsModalElement = document.querySelector("[data-options-modal]");
+const optionsOpenButtons = document.querySelectorAll("[data-options-open]");
+const optionsCloseButton = document.querySelector("[data-options-close]");
+const optionsRestartButton = document.querySelector("[data-options-restart]");
+const optionsExitButton = document.querySelector("[data-options-exit]");
+const optionsGameActionsElement = document.querySelector("[data-options-game-actions]");
+const musicVolumeInput = document.querySelector("[data-music-volume]");
+const musicVolumeValue = document.querySelector("[data-music-volume-value]");
+const sfxVolumeInput = document.querySelector("[data-sfx-volume]");
+const sfxVolumeValue = document.querySelector("[data-sfx-volume-value]");
 const mobileJoystickElement = document.querySelector("[data-mobile-joystick]");
 const mobileJoystickStickElement = document.querySelector("[data-mobile-joystick-stick]");
 const mobileFireButton = document.querySelector("[data-mobile-fire-button]");
@@ -107,6 +117,19 @@ const visualTuningStatus = document.querySelector("#visualTuningStatus");
 const copyVisualTuningButton = document.querySelector("#copyVisualTuningButton");
 const modelUrl = new URL("../assets/HUNK.glb", import.meta.url).href;
 const minionUrl = new URL("../assets/minion.glb", import.meta.url).href;
+const enemyMovementSoundUrls = [
+  new URL("../assets/audio/zombie-walk-groan-a.mp3", import.meta.url).href,
+  new URL("../assets/audio/zombie-walk-groan-b.mp3", import.meta.url).href,
+];
+const pistolShotSoundUrl = new URL("../assets/audio/pistol-shot-9mm.mp3", import.meta.url).href;
+const shotgunShotSoundUrl = new URL("../assets/audio/shotgun-shot.mp3", import.meta.url).href;
+const ammoReloadSoundUrl = new URL("../assets/audio/ammo-reload-1911.mp3", import.meta.url).href;
+const floorMusicUrls = [
+  new URL("../assets/audio/floor-music-1.mp3", import.meta.url).href,
+  new URL("../assets/audio/floor-music-2.mp3", import.meta.url).href,
+  new URL("../assets/audio/floor-music-3.mp3", import.meta.url).href,
+  new URL("../assets/audio/floor-music-4.mp3", import.meta.url).href,
+];
 const runtimeHost = window.location.hostname;
 const runtimeSearchParams = new URLSearchParams(window.location.search);
 const runtimeMobileOverride = runtimeSearchParams.has("mobile");
@@ -129,20 +152,32 @@ const sewerTextureUrls = {
     { id: "debris-02", label: "Entulho", url: new URL("../assets/Sewer/Textures/debris_02.jpg", import.meta.url).href, repeatX: 1.35, repeatY: 1.35, color: 0x7d7966 },
     { id: "soil-mud", label: "Lama", url: new URL("../assets/Sewer/Textures/soil_mud.jpg", import.meta.url).href, repeatX: 1.75, repeatY: 1.75, color: 0x716b58 },
     { id: "concrete-dirty-2", label: "Concreto sujo", url: new URL("../assets/Sewer/Textures/concrete_dirty_2.jpg", import.meta.url).href, repeatX: 1.65, repeatY: 1.65, color: 0x8a8368 },
+    ...createTexturePackVariants({ idPrefix: "grass", folder: "Grass", filePrefix: "Grass", labelPrefix: "Grama", color: 0x6f8a49 }),
+    ...createTexturePackVariants({ idPrefix: "tile", folder: "Tile", filePrefix: "Tile", labelPrefix: "Tile", color: 0x8c8b78 }),
+    ...createTexturePackVariants({ idPrefix: "wood", folder: "Wood", filePrefix: "Wood", labelPrefix: "Madeira", color: 0x8b6a46 }),
   ],
   wall: [
     { id: "brick-modern-01", label: "Tijolo moderno", url: new URL("../assets/Sewer/Textures/brick_modern_01.jpg", import.meta.url).href, repeatX: 2.4, repeatY: 3.6, color: 0x7d7a68 },
     { id: "concrete-dirty", label: "Concreto manchado", url: new URL("../assets/Sewer/Textures/concrete_dirty.jpg", import.meta.url).href, repeatX: 1.7, repeatY: 2.6, color: 0x79776b },
     { id: "concrete-dirty-2", label: "Concreto escuro", url: new URL("../assets/Sewer/Textures/concrete_dirty_2.jpg", import.meta.url).href, repeatX: 1.35, repeatY: 2.2, color: 0x747164 },
     { id: "metal", label: "Metal", url: new URL("../assets/Sewer/Textures/Metal.jpg", import.meta.url).href, repeatX: 1.6, repeatY: 2.2, color: 0x8b8a82, metalness: 0.18, roughness: 0.82 },
+    { id: "bricks", label: "Tijolos", url: new URL("../assets/Sewer/Textures/bricks.jpg", import.meta.url).href, repeatX: 2.1, repeatY: 2.1, color: 0x777465 },
+    ...createTexturePackVariants({ idPrefix: "bricks", folder: "Bricks", filePrefix: "Bricks", labelPrefix: "Tijolo", color: 0x877565 }),
+    ...createTexturePackVariants({ idPrefix: "wood", folder: "Wood", filePrefix: "Wood", labelPrefix: "Madeira", color: 0x8b6a46 }),
   ],
   ceiling: [
     { id: "bricks", label: "Tijolos", url: new URL("../assets/Sewer/Textures/bricks.jpg", import.meta.url).href, repeatX: 2.1, repeatY: 2.1, color: 0x777465 },
     { id: "concrete-dirty-2", label: "Concreto escuro", url: new URL("../assets/Sewer/Textures/concrete_dirty_2.jpg", import.meta.url).href, repeatX: 1.45, repeatY: 1.45, color: 0x777263 },
+    ...createTexturePackVariants({ idPrefix: "wood", folder: "Wood", filePrefix: "Wood", labelPrefix: "Madeira", color: 0x8b6a46 }),
   ],
 };
 const sewerMaterialOptions = createSewerMaterialOptions(sewerTextureUrls);
-const sewerMaterialIds = new Set(sewerMaterialOptions.map((material) => material.id));
+const sewerMaterialIdsBySurface = Object.fromEntries(
+  Object.entries(sewerTextureUrls).map(([surface, variants]) => [
+    surface,
+    new Set(variants.map((material) => material.id)),
+  ]),
+);
 const defaultMapMaterials = {
   floor: sewerTextureUrls.floor[0].id,
   wall: sewerTextureUrls.wall[0].id,
@@ -284,6 +319,7 @@ const shotgunPickupRadius = 1.15;
 const shotgunDropDuration = 0.72;
 const shotgunDropArcHeight = 0.9;
 const runRecordsStorageKey = "theRank.records.v1";
+const optionsStorageKey = "theRank.options.v1";
 const damageNumberCanvasWidth = 128;
 const damageNumberCanvasHeight = 80;
 const damageNumberDuration = 0.78;
@@ -307,6 +343,14 @@ const enemyPathRepathInterval = 0.45;
 const enemyPathWaypointRadius = 0.32;
 const enemyInitialInactiveFloorChance = 0.5;
 const enemyCollisionRadius = 0.75;
+const enemyMovementSoundVolume = 0.52;
+const enemyMovementSoundBossVolume = 0.64;
+const enemyMovementSoundRefDistance = platformTileSize * 0.85;
+const enemyMovementSoundMaxDistance = enemyVisionDistance * 1.08;
+const enemyMovementSoundRolloff = 1.7;
+const pistolShotSoundVolume = 0.82;
+const shotgunShotSoundVolume = 0.86;
+const ammoReloadSoundVolume = 0.72;
 const enemyAttackRange = 1.65;
 const enemyAttackDamage = 6;
 const enemyAttackCooldown = 1.25;
@@ -744,9 +788,20 @@ let playerControlState = createPlayerControlState();
 let gameplayCameraIntroState = createGameplayCameraIntroState();
 let gameplayCameraOutroState = createGameplayCameraOutroState();
 let collisionDebugState = createCollisionDebugState();
+let optionsMenuState = createOptionsMenuState();
 let platformGroup = null;
 let enemySourceModel = null;
 let enemyGroup = null;
+let enemyMovementSoundBuffers = [];
+let pistolShotSoundBuffer = null;
+let pistolShotSound = null;
+let shotgunShotSoundBuffer = null;
+let shotgunShotSound = null;
+let ammoReloadSoundBuffer = null;
+let ammoReloadSound = null;
+let floorMusicBuffers = [];
+let floorMusicSound = null;
+let activeFloorMusicIndex = null;
 let activeEnemies = [];
 let activeImpactEffects = [];
 let activeMuzzleFlashes = [];
@@ -927,6 +982,8 @@ const collisionDebugEdgesGeometry = new THREE.EdgesGeometry(collisionDebugBoxGeo
 
 const camera = new THREE.PerspectiveCamera(42, 1, 0.05, 120);
 camera.position.set(7, 5.2, 9.5);
+const audioListener = new THREE.AudioListener();
+camera.add(audioListener);
 
 const renderer = new THREE.WebGLRenderer({
   antialias: performanceProfile.antialias,
@@ -963,6 +1020,7 @@ baseDirectLight.target.name = "RuntimeDirectLightTarget";
 scene.add(baseDirectLight, baseDirectLight.target);
 
 const textureLoader = new THREE.TextureLoader();
+const audioLoader = new THREE.AudioLoader();
 const sewerSurfaceVariants = {
   floor: sewerTextureUrls.floor.map(loadSewerSurfaceVariant),
   wall: sewerTextureUrls.wall.map(loadSewerSurfaceVariant),
@@ -991,6 +1049,7 @@ setupMobileControls();
 setupWeaponSlotHud();
 setupCorpseSearchControls();
 setupRunSummaryControls();
+setupOptionsControls();
 setupAttachmentControls();
 renderColorPanel();
 setupColorControls();
@@ -1020,6 +1079,296 @@ function loadSewerTexture(url, repeatX = 1, repeatY = 1) {
   return texture;
 }
 
+function createTexturePackVariants({
+  idPrefix,
+  folder,
+  filePrefix,
+  labelPrefix,
+  count = 25,
+  repeatX = 1,
+  repeatY = 1,
+  color = 0xffffff,
+}) {
+  return Array.from({ length: count }, (_, index) => {
+    const number = String(index + 1).padStart(2, "0");
+    return {
+      id: `${idPrefix}-${number}`,
+      label: `${labelPrefix} ${number}`,
+      url: new URL(`../assets/128x128/${folder}/${filePrefix}_${number}-128x128.png`, import.meta.url).href,
+      repeatX,
+      repeatY,
+      color,
+    };
+  });
+}
+
+function loadEnemyMovementSounds() {
+  return Promise.all(enemyMovementSoundUrls.map(loadAudioBuffer)).then((buffers) => {
+    enemyMovementSoundBuffers = buffers.filter(Boolean);
+    if (!enemyMovementSoundBuffers.length) {
+      console.warn("Nenhum som de movimento de inimigo foi carregado.");
+    }
+    return enemyMovementSoundBuffers;
+  });
+}
+
+function loadPistolShotSound() {
+  return loadAudioBuffer(pistolShotSoundUrl).then((buffer) => {
+    pistolShotSoundBuffer = buffer;
+    if (!pistolShotSoundBuffer) {
+      console.warn("Som de tiro da pistola nao foi carregado.");
+    }
+    return pistolShotSoundBuffer;
+  });
+}
+
+function loadShotgunShotSound() {
+  return loadAudioBuffer(shotgunShotSoundUrl).then((buffer) => {
+    shotgunShotSoundBuffer = buffer;
+    if (!shotgunShotSoundBuffer) {
+      console.warn("Som de tiro da shotgun nao foi carregado.");
+    }
+    return shotgunShotSoundBuffer;
+  });
+}
+
+function loadAmmoReloadSound() {
+  return loadAudioBuffer(ammoReloadSoundUrl).then((buffer) => {
+    ammoReloadSoundBuffer = buffer;
+    if (!ammoReloadSoundBuffer) {
+      console.warn("Som de recarga de municao nao foi carregado.");
+    }
+    return ammoReloadSoundBuffer;
+  });
+}
+
+function loadFloorMusic() {
+  return Promise.all(floorMusicUrls.map(loadAudioBuffer)).then((buffers) => {
+    floorMusicBuffers = buffers.filter(Boolean);
+    if (!floorMusicBuffers.length) {
+      console.warn("Nenhuma musica de andar foi carregada.");
+    }
+    return floorMusicBuffers;
+  });
+}
+
+function loadAudioBuffer(url) {
+  return new Promise((resolve) => {
+    audioLoader.load(
+      url,
+      resolve,
+      undefined,
+      (error) => {
+        console.warn("Nao foi possivel carregar audio.", url, error);
+        resolve(null);
+      },
+    );
+  });
+}
+
+function playPistolShotSound() {
+  const sound = ensurePistolShotSound();
+  if (!sound) {
+    return;
+  }
+
+  unlockGameAudio();
+  if (sound.isPlaying) {
+    sound.stop();
+  }
+  sound.play();
+}
+
+function ensurePistolShotSound() {
+  if (pistolShotSound) {
+    return pistolShotSound;
+  }
+
+  if (!pistolShotSoundBuffer) {
+    return null;
+  }
+
+  pistolShotSound = new THREE.Audio(audioListener);
+  pistolShotSound.name = "PistolShot9mm";
+  pistolShotSound.setBuffer(pistolShotSoundBuffer);
+  pistolShotSound.setLoop(false);
+  pistolShotSound.setVolume(getSfxVolume(pistolShotSoundVolume));
+  return pistolShotSound;
+}
+
+function playShotgunShotSound() {
+  const sound = ensureShotgunShotSound();
+  if (!sound) {
+    return;
+  }
+
+  unlockGameAudio();
+  if (sound.isPlaying) {
+    sound.stop();
+  }
+  sound.play();
+}
+
+function ensureShotgunShotSound() {
+  if (shotgunShotSound) {
+    return shotgunShotSound;
+  }
+
+  if (!shotgunShotSoundBuffer) {
+    return null;
+  }
+
+  shotgunShotSound = new THREE.Audio(audioListener);
+  shotgunShotSound.name = "ShotgunShot";
+  shotgunShotSound.setBuffer(shotgunShotSoundBuffer);
+  shotgunShotSound.setLoop(false);
+  shotgunShotSound.setVolume(getSfxVolume(shotgunShotSoundVolume));
+  return shotgunShotSound;
+}
+
+function playAmmoReloadSound() {
+  const sound = ensureAmmoReloadSound();
+  if (!sound) {
+    return;
+  }
+
+  unlockGameAudio();
+  if (sound.isPlaying) {
+    sound.stop();
+  }
+  sound.play();
+}
+
+function ensureAmmoReloadSound() {
+  if (ammoReloadSound) {
+    return ammoReloadSound;
+  }
+
+  if (!ammoReloadSoundBuffer) {
+    return null;
+  }
+
+  ammoReloadSound = new THREE.Audio(audioListener);
+  ammoReloadSound.name = "AmmoReload";
+  ammoReloadSound.setBuffer(ammoReloadSoundBuffer);
+  ammoReloadSound.setLoop(false);
+  ammoReloadSound.setVolume(getSfxVolume(ammoReloadSoundVolume));
+  return ammoReloadSound;
+}
+
+function getSfxVolume(baseVolume = 1) {
+  return THREE.MathUtils.clamp(baseVolume, 0, 1) * (optionsMenuState.sfxVolume / 100);
+}
+
+function getMusicVolume() {
+  return optionsMenuState.musicVolume / 100;
+}
+
+function applyAudioOptionVolumes() {
+  applyMusicOptionVolume();
+  pistolShotSound?.setVolume(getSfxVolume(pistolShotSoundVolume));
+  shotgunShotSound?.setVolume(getSfxVolume(shotgunShotSoundVolume));
+  ammoReloadSound?.setVolume(getSfxVolume(ammoReloadSoundVolume));
+
+  for (const enemy of activeEnemies) {
+    if (!enemy.movementSound) {
+      continue;
+    }
+
+    enemy.movementSound.setVolume(getEnemyMovementSoundVolume(enemy));
+  }
+}
+
+function getEnemyMovementSoundVolume(enemy) {
+  return getSfxVolume(enemy?.type === "boss" ? enemyMovementSoundBossVolume : enemyMovementSoundVolume);
+}
+
+function applyMusicOptionVolume() {
+  const volume = getMusicVolume();
+  if (volume <= 0) {
+    stopFloorMusic();
+    return;
+  }
+
+  if (isRunMusicAllowed()) {
+    playFloorMusicForCurrentFloor();
+    return;
+  }
+
+  if (floorMusicSound) {
+    floorMusicSound.setVolume(volume);
+  }
+}
+
+function playFloorMusicForCurrentFloor() {
+  playFloorMusic(mapEditorState.activeFloorIndex);
+}
+
+function playFloorMusic(floorIndex = 0) {
+  if (!floorMusicBuffers.length || !isRunMusicAllowed() || getMusicVolume() <= 0) {
+    stopFloorMusic();
+    return;
+  }
+
+  const musicIndex = getFloorMusicIndex(floorIndex);
+  const buffer = floorMusicBuffers[musicIndex];
+  if (!buffer) {
+    stopFloorMusic();
+    return;
+  }
+
+  const music = ensureFloorMusicSound();
+  if (!music) {
+    return;
+  }
+
+  unlockGameAudio();
+  if (activeFloorMusicIndex !== musicIndex) {
+    if (music.isPlaying) {
+      music.stop();
+    }
+    music.setBuffer(buffer);
+    music.setLoop(true);
+    activeFloorMusicIndex = musicIndex;
+  }
+
+  music.setVolume(getMusicVolume());
+  if (!music.isPlaying) {
+    music.play();
+  }
+}
+
+function ensureFloorMusicSound() {
+  if (floorMusicSound) {
+    return floorMusicSound;
+  }
+
+  floorMusicSound = new THREE.Audio(audioListener);
+  floorMusicSound.name = "FloorMusic";
+  floorMusicSound.setLoop(true);
+  floorMusicSound.setVolume(getMusicVolume());
+  return floorMusicSound;
+}
+
+function stopFloorMusic() {
+  if (floorMusicSound?.isPlaying) {
+    floorMusicSound.stop();
+  }
+}
+
+function getFloorMusicIndex(floorIndex) {
+  if (!floorMusicBuffers.length) {
+    return 0;
+  }
+
+  const index = Math.floor(Number(floorIndex) || 0);
+  return ((index % floorMusicBuffers.length) + floorMusicBuffers.length) % floorMusicBuffers.length;
+}
+
+function isRunMusicAllowed() {
+  return Boolean(sceneReady && runTimingState.started && !runTimingState.resultShown);
+}
+
 function createSewerMaterialOptions(textureGroups) {
   const materialsById = new Map();
 
@@ -1032,6 +1381,10 @@ function createSewerMaterialOptions(textureGroups) {
   }
 
   return [...materialsById.values()];
+}
+
+function getSewerSurfaceOptions(surface) {
+  return sewerSurfaceVariants[surface] || sewerSurfaceVariants.floor;
 }
 
 function createPerformanceProfile() {
@@ -1065,21 +1418,24 @@ renderer.setAnimationLoop((timestamp) => {
   const delta = timer.getDelta();
   const gameplayIntroActive = isGameplayCameraIntroActive();
   const gameplayOutroActive = isGameplayCameraOutroActive();
+  const gameplayPaused = optionsMenuState.isOpen;
 
   if (gameplayIntroActive) {
     updateGameplayCameraIntro(delta);
   } else if (gameplayOutroActive) {
     updateGameplayCameraOutro(delta);
-  } else if (!cameraControlState.freeCamera) {
+  } else if (!gameplayPaused && !cameraControlState.freeCamera) {
     updatePlayerControls(delta);
   }
 
-  if (mixer) {
+  if (mixer && !gameplayPaused) {
     mixer.update(delta);
   }
 
-  updateImpactEffects(delta);
-  if (!gameplayIntroActive) {
+  if (!gameplayPaused) {
+    updateImpactEffects(delta);
+  }
+  if (!gameplayIntroActive && !gameplayPaused) {
     updateEnemies(delta);
     updateEnemyCombatIndicators(delta);
     updateAmmoPickups(delta);
@@ -1094,7 +1450,7 @@ renderer.setAnimationLoop((timestamp) => {
 
   if (cameraControlState.freeCamera) {
     updateFreeCamera(delta);
-  } else if (!gameplayIntroActive && !gameplayOutroActive) {
+  } else if (!gameplayIntroActive && !gameplayOutroActive && !gameplayPaused) {
     controls.update(delta);
   }
 
@@ -1118,6 +1474,15 @@ function setupStartScreen() {
   });
 }
 
+function unlockGameAudio() {
+  const context = THREE.AudioContext.getContext();
+  if (context?.state === "suspended") {
+    context.resume().catch((error) => {
+      console.warn("Nao foi possivel liberar audio.", error);
+    });
+  }
+}
+
 function enterStartScreenLandscape() {
   if (!runtimeIsMobile) {
     return;
@@ -1136,6 +1501,7 @@ async function startGame() {
   }
 
   enterPreferredFullscreenAndOrientation();
+  unlockGameAudio();
 
   if (startButton) {
     startButton.disabled = true;
@@ -1195,10 +1561,15 @@ async function loadScene() {
     weaponSelect.disabled = true;
     setAttachmentControlsEnabled(false);
 
-    const [modelGltf, minionGltf, ...animationGltfs] = await Promise.all([
+    const [modelGltf, minionGltf, animationGltfs] = await Promise.all([
       loadGltf(modelUrl),
       loadGltf(minionUrl),
-      ...animationUrls.map((url) => loadGltf(url)),
+      Promise.all(animationUrls.map((url) => loadGltf(url))),
+      loadEnemyMovementSounds(),
+      loadPistolShotSound(),
+      loadShotgunShotSound(),
+      loadAmmoReloadSound(),
+      loadFloorMusic(),
     ]);
 
     characterModel = modelGltf.scene;
@@ -1708,8 +2079,142 @@ function setupRunSummaryControls() {
   restartRunButton?.addEventListener("click", () => {
     void restartRun();
   });
-  exitRunButton?.addEventListener("click", exitRunToStart);
+  exitRunButton?.addEventListener("click", () => {
+    void exitRunToStart();
+  });
   syncRunTimerHud();
+}
+
+function setupOptionsControls() {
+  syncOptionsControls();
+
+  for (const button of optionsOpenButtons) {
+    button.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+    });
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openOptionsMenu(button.dataset.optionsOpen === "game" ? "game" : "start");
+    });
+  }
+
+  optionsCloseButton?.addEventListener("click", closeOptionsMenu);
+  optionsModalElement?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" || (!runtimeIsMobile && event.key.toLowerCase() === "s")) {
+      event.preventDefault();
+      closeOptionsMenu();
+    }
+  });
+  optionsRestartButton?.addEventListener("click", () => {
+    closeOptionsMenu();
+    void restartRun();
+  });
+  optionsExitButton?.addEventListener("click", () => {
+    closeOptionsMenu();
+    void exitRunToStart();
+  });
+  musicVolumeInput?.addEventListener("input", () => {
+    setOptionVolume("musicVolume", musicVolumeInput.value);
+  });
+  sfxVolumeInput?.addEventListener("input", () => {
+    setOptionVolume("sfxVolume", sfxVolumeInput.value);
+  });
+}
+
+function openOptionsMenu(context = "game") {
+  if (!optionsModalElement) {
+    return;
+  }
+
+  optionsMenuState.isOpen = true;
+  optionsMenuState.context = context;
+  optionsModalElement.hidden = false;
+  if (optionsGameActionsElement) {
+    optionsGameActionsElement.hidden = context !== "game";
+  }
+  if (context === "game") {
+    stopGameplayInputForRunSummary();
+  }
+  syncOptionsControls();
+  syncCrosshair();
+  window.requestAnimationFrame(() => {
+    (context === "game" ? optionsCloseButton : musicVolumeInput)?.focus?.();
+  });
+}
+
+function closeOptionsMenu() {
+  optionsMenuState.isOpen = false;
+  if (optionsModalElement) {
+    optionsModalElement.hidden = true;
+  }
+  syncCrosshair();
+}
+
+function setOptionVolume(key, value) {
+  optionsMenuState[key] = clampOptionVolume(value);
+  saveOptionsMenuState();
+  syncOptionsControls();
+  applyAudioOptionVolumes();
+}
+
+function syncOptionsControls() {
+  if (musicVolumeInput) {
+    musicVolumeInput.value = String(optionsMenuState.musicVolume);
+  }
+  if (musicVolumeValue) {
+    musicVolumeValue.textContent = formatOptionVolume(optionsMenuState.musicVolume);
+  }
+  if (sfxVolumeInput) {
+    sfxVolumeInput.value = String(optionsMenuState.sfxVolume);
+  }
+  if (sfxVolumeValue) {
+    sfxVolumeValue.textContent = formatOptionVolume(optionsMenuState.sfxVolume);
+  }
+}
+
+function createOptionsMenuState() {
+  const fallback = {
+    isOpen: false,
+    context: "start",
+    musicVolume: 100,
+    sfxVolume: 100,
+  };
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(optionsStorageKey) || "null");
+    if (!parsed || typeof parsed !== "object") {
+      return fallback;
+    }
+
+    return {
+      ...fallback,
+      musicVolume: clampOptionVolume(parsed.musicVolume),
+      sfxVolume: clampOptionVolume(parsed.sfxVolume),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveOptionsMenuState() {
+  try {
+    window.localStorage.setItem(optionsStorageKey, JSON.stringify({
+      musicVolume: optionsMenuState.musicVolume,
+      sfxVolume: optionsMenuState.sfxVolume,
+    }));
+  } catch {
+    // Private browsing or storage quotas can block option persistence.
+  }
+}
+
+function clampOptionVolume(value) {
+  return THREE.MathUtils.clamp(Math.round(Number(value) || 0), 0, 100);
+}
+
+function formatOptionVolume(value) {
+  const volume = clampOptionVolume(value);
+  return volume === 0 ? "Mute" : String(volume);
 }
 
 async function restartRun() {
@@ -1717,7 +2222,8 @@ async function restartRun() {
   await startGameplayRun();
 }
 
-function exitRunToStart() {
+async function exitRunToStart() {
+  stopFloorMusic();
   clearPlayerMouseButtons();
   cancelGameplayCameraIntro();
   cancelGameplayCameraOutro();
@@ -1727,6 +2233,13 @@ function exitRunToStart() {
   hideStageBanner();
   runTimingState = createRunTimingState();
   syncRunTimerHud();
+  if (runtimeIsMobile && document.fullscreenElement && document.exitFullscreen) {
+    try {
+      await document.exitFullscreen();
+    } catch {
+      // Some mobile browsers reject fullscreen exit while changing orientation.
+    }
+  }
   showStartScreenOverlay();
   syncCrosshair();
 }
@@ -1736,6 +2249,7 @@ async function startGameplayRun() {
     return;
   }
 
+  stopFloorMusic();
   hideRunSummaryModal();
   hideStageBanner();
   clearPlayerMouseButtons();
@@ -2244,6 +2758,7 @@ function startGameplayCameraIntro({ startRunTimerOnComplete = false, floorIndex 
   if (!characterModel || cameraControlState.freeCamera) {
     if (startRunTimerOnComplete) {
       startRunTimer(floorIndex);
+      playFloorMusic(floorIndex);
     }
     return;
   }
@@ -2366,6 +2881,7 @@ function completeGameplayCameraIntro() {
 
   if (shouldStartTimer) {
     startRunTimer(floorIndex);
+    playFloorMusic(floorIndex);
   }
 
   showStageBanner("GO", { countdown: true, duration: gameplayCameraIntroGoBannerDuration });
@@ -2386,7 +2902,10 @@ function isGameplayCameraIntroActive() {
 }
 
 function isGameplayInputLocked() {
-  return isGameplayCameraIntroActive() || isGameplayCameraOutroActive();
+  return isGameplayCameraIntroActive()
+    || isGameplayCameraOutroActive()
+    || runTimingState.resultShown
+    || optionsMenuState.isOpen;
 }
 
 function showRunTimerReadyState() {
@@ -2721,12 +3240,26 @@ function handleCameraKeyDown(event) {
     return;
   }
 
+  const key = event.key.toLowerCase();
+  if (optionsMenuState.isOpen) {
+    if (key === "escape" || (!runtimeIsMobile && key === "s")) {
+      event.preventDefault();
+      closeOptionsMenu();
+    }
+    return;
+  }
+
+  if (!runtimeIsMobile && key === "s") {
+    event.preventDefault();
+    openOptionsMenu("game");
+    return;
+  }
+
   if (isGameplayInputLocked()) {
     event.preventDefault();
     return;
   }
 
-  const key = event.key.toLowerCase();
   if (handleCombatWeaponHotkey(key)) {
     event.preventDefault();
     return;
@@ -3133,6 +3666,11 @@ function firePreparedPlayerWeapon() {
     return false;
   }
 
+  if (weaponId === defaultCombatWeaponId) {
+    playPistolShotSound();
+  } else if (weaponId === shotgunCombatWeaponId) {
+    playShotgunShotSound();
+  }
   setCombatWeaponAmmo(weaponId, getCombatWeaponAmmo(weaponId) - 1);
   syncPlayerAmmoHud();
   recordProjectileShotPerf(shotStartTime);
@@ -5090,7 +5628,7 @@ function normalizeMapEnemyType(value) {
 }
 
 function normalizeMapMaterialId(surface, value) {
-  return sewerMaterialIds.has(value) ? value : defaultMapMaterials[surface];
+  return sewerMaterialIdsBySurface[surface]?.has(value) ? value : defaultMapMaterials[surface];
 }
 
 function normalizeMapDirection(value) {
@@ -5226,7 +5764,7 @@ function populateMapMaterialControls() {
     }
 
     control.select.replaceChildren();
-    for (const variant of sewerMaterialOptions) {
+    for (const variant of getSewerSurfaceOptions(surface)) {
       const option = document.createElement("option");
       option.value = variant.id;
       option.textContent = variant.label;
@@ -6449,6 +6987,7 @@ function renderAppliedEnemies() {
 function clearAppliedEnemies() {
   for (const enemy of activeEnemies) {
     enemy.mixer?.stopAllAction();
+    disposeEnemyMovementSound(enemy);
   }
 
   clearEnemyCombatIndicators();
@@ -6461,6 +7000,87 @@ function clearAppliedEnemies() {
     scene.remove(enemyGroup);
     enemyGroup = null;
   }
+}
+
+function updateEnemyMovementSound(enemy) {
+  const shouldPlay = Boolean(
+    enemy.active
+      && enemy.spawned
+      && enemy.model?.visible !== false
+      && enemy.state === "chasing"
+      && enemy.movedThisFrame
+      && !playerControlState.dead,
+  );
+  const sound = shouldPlay ? ensureEnemyMovementSound(enemy) : enemy.movementSound;
+
+  if (!sound) {
+    return;
+  }
+
+  if (shouldPlay) {
+    if (!sound.isPlaying) {
+      unlockGameAudio();
+      sound.play();
+    }
+    return;
+  }
+
+  stopEnemyMovementSound(enemy);
+}
+
+function ensureEnemyMovementSound(enemy) {
+  if (enemy.movementSound) {
+    return enemy.movementSound;
+  }
+
+  if (!enemyMovementSoundBuffers.length || !enemy?.model) {
+    return null;
+  }
+
+  const buffer = enemyMovementSoundBuffers[
+    enemy.movementSoundBufferIndex % enemyMovementSoundBuffers.length
+  ];
+  if (!buffer) {
+    return null;
+  }
+
+  const sound = new THREE.PositionalAudio(audioListener);
+  sound.name = "EnemyMovementGroan";
+  sound.setBuffer(buffer);
+  sound.setLoop(true);
+  sound.setVolume(getEnemyMovementSoundVolume(enemy));
+  sound.setRefDistance(enemyMovementSoundRefDistance);
+  sound.setMaxDistance(enemyMovementSoundMaxDistance);
+  sound.setRolloffFactor(enemyMovementSoundRolloff);
+  sound.setDistanceModel("linear");
+  sound.setPlaybackRate(enemy.movementSoundRate || 1);
+  sound.position.y = enemy.hitbox ? enemy.hitbox.eyeOffsetY * 0.62 : 1.8;
+  enemy.model.add(sound);
+  enemy.movementSound = sound;
+  return sound;
+}
+
+function stopEnemyMovementSound(enemy) {
+  const sound = enemy?.movementSound;
+  if (sound?.isPlaying) {
+    sound.stop();
+  }
+}
+
+function disposeEnemyMovementSound(enemy) {
+  const sound = enemy?.movementSound;
+  if (!sound) {
+    return;
+  }
+
+  stopEnemyMovementSound(enemy);
+  sound.removeFromParent();
+  try {
+    sound.disconnect();
+  } catch {
+    // Three.js Audio disconnect can throw if the node was never connected.
+  }
+  enemy.movementSound = null;
 }
 
 function createEnemyRuntime(model, mapEnemy, index) {
@@ -6500,6 +7120,10 @@ function createEnemyRuntime(model, mapEnemy, index) {
     pathStartKey: null,
     pathTargetKey: null,
     pathRepathTimer: 0,
+    movedThisFrame: false,
+    movementSound: null,
+    movementSoundBufferIndex: Math.floor(Math.random() * enemyMovementSoundUrls.length),
+    movementSoundRate: THREE.MathUtils.lerp(0.94, 1.06, Math.random()),
     active: !isBoss,
     spawned: !isBoss,
   };
@@ -6845,13 +7469,32 @@ function finishRun(outcome) {
     return;
   }
 
+  stopFloorMusic();
+  stopGameplayInputForRunSummary();
   runTimingState.resultShown = true;
-  const records = updateRunRecords(outcome);
-  renderRunSummary(outcome, records);
+  const recordResult = updateRunRecords(outcome);
+  renderRunSummary(outcome, recordResult.records, recordResult);
+}
+
+function stopGameplayInputForRunSummary() {
+  clearPlayerMouseButtons();
+  playerControlState.pressedKeys.clear();
+  cameraControlState.pressedKeys.clear();
+  stopMobileJoystick();
+  stopMobileLook();
+  stopMobileFireLook();
+  resetCorpseSearchState();
+  mobileFireButton?.classList.remove("is-firing");
+
+  if (document.pointerLockElement === renderer.domElement) {
+    document.exitPointerLock();
+  }
 }
 
 function updateRunRecords(outcome) {
   const records = loadRunRecords();
+  const improvedFloorIndexes = new Set();
+  let improvedTotal = false;
   let changed = false;
   ensureRunFloorCapacity();
 
@@ -6868,6 +7511,7 @@ function updateRunRecords(outcome) {
     const previous = normalizeRecordTime(records.floorRecordsMs[index]);
     if (previous === null || runTime < previous) {
       records.floorRecordsMs[index] = runTime;
+      improvedFloorIndexes.add(index);
       changed = true;
     }
   }
@@ -6877,6 +7521,7 @@ function updateRunRecords(outcome) {
     const previousTotal = normalizeRecordTime(records.totalRecordMs);
     if (totalTime !== null && (previousTotal === null || totalTime < previousTotal)) {
       records.totalRecordMs = totalTime;
+      improvedTotal = true;
       changed = true;
     }
   }
@@ -6885,7 +7530,7 @@ function updateRunRecords(outcome) {
     saveRunRecords(records);
   }
 
-  return records;
+  return { records, improvedFloorIndexes, improvedTotal };
 }
 
 function loadRunRecords() {
@@ -6924,10 +7569,10 @@ function saveRunRecords(records) {
 
 function normalizeRecordTime(value) {
   const time = Number(value);
-  return Number.isFinite(time) && time >= 0 ? time : null;
+  return Number.isFinite(time) && time > 0 ? time : null;
 }
 
-function renderRunSummary(outcome, records = loadRunRecords()) {
+function renderRunSummary(outcome, records = loadRunRecords(), recordResult = null) {
   if (!runSummaryModalElement || !runSummaryBodyElement) {
     return;
   }
@@ -6955,15 +7600,21 @@ function renderRunSummary(outcome, records = loadRunRecords()) {
       `Floor ${index + 1}`,
       runTimingState.floorTimesMs[index],
       records.floorRecordsMs[index],
+      recordResult?.improvedFloorIndexes?.has?.(index),
     ));
   }
-  tbody.append(createRunSummaryRow("Total Run", runTimingState.totalElapsedMs, records.totalRecordMs));
+  tbody.append(createRunSummaryRow(
+    "Total Run",
+    runTimingState.totalElapsedMs,
+    records.totalRecordMs,
+    Boolean(recordResult?.improvedTotal),
+  ));
   table.append(tbody);
   runSummaryBodyElement.replaceChildren(table);
   runSummaryModalElement.hidden = false;
 }
 
-function createRunSummaryRow(label, runTime, recordTime) {
+function createRunSummaryRow(label, runTime, recordTime, improvedRecord = false) {
   const row = document.createElement("tr");
   const labelCell = document.createElement("td");
   const runCell = document.createElement("td");
@@ -6973,6 +7624,7 @@ function createRunSummaryRow(label, runTime, recordTime) {
   runCell.textContent = formatNullableRunTime(runTime);
   recordCell.textContent = formatNullableRunTime(recordTime);
   recordCell.className = "run-summary-record";
+  recordCell.classList.toggle("is-new-record", improvedRecord);
 
   row.append(labelCell, runCell, recordCell);
   return row;
@@ -7012,16 +7664,19 @@ function updateEnemies(delta) {
       continue;
     }
 
+    enemy.movedThisFrame = false;
     refreshEnemyDistanceToPlayer(enemy);
     updateEnemyMixer(enemy, delta);
 
     if (enemy.state === "dead") {
+      stopEnemyMovementSound(enemy);
       updateEnemyHitFeedback(enemy, delta);
       continue;
     }
 
     updateEnemyState(enemy, delta);
     updateEnemyHitFeedback(enemy, delta);
+    updateEnemyMovementSound(enemy);
   }
 }
 
@@ -7146,6 +7801,7 @@ function advanceToNextFloor() {
   if (nextFloorIndex < mapEditorState.floors.length) {
     loadMapFloorIntoEditor(mapEditorState.floors[nextFloorIndex], nextFloorIndex);
     startRunFloorTimer(nextFloorIndex);
+    playFloorMusic(nextFloorIndex);
     showStageBanner(`FLOOR ${nextFloorIndex + 1}`, { duration: 1.6 });
     return;
   }
@@ -7359,6 +8015,7 @@ function startEnemyDownedState(enemy) {
   enemy.state = "downed";
   enemy.stateElapsed = 0;
   enemy.stateTimer = THREE.MathUtils.lerp(enemyDownedSecondsMin, enemyDownedSecondsMax, Math.random());
+  stopEnemyMovementSound(enemy);
   playEnemyAnimation(enemy, "Skeletons_Death_Pose", { loop: true, restart: true });
 }
 
@@ -7379,6 +8036,7 @@ function startEnemyTimedState(enemy, state, clipName, fallbackDuration) {
   enemy.stateTimer = getEnemyAnimationDuration(enemy, clipName, fallbackDuration);
   enemy.stateElapsed = 0;
   enemy.attackHitApplied = false;
+  stopEnemyMovementSound(enemy);
   playEnemyAnimation(enemy, clipName, { loop: false, restart: true });
 }
 
@@ -7431,6 +8089,7 @@ function startEnemyAttack(enemy) {
   enemy.stateTimer = Math.max(duration, enemyAttackHitTime + 0.12);
   enemy.stateElapsed = 0;
   enemy.attackHitApplied = false;
+  stopEnemyMovementSound(enemy);
   faceEnemyTowardPlayer(enemy);
   playEnemyAnimation(enemy, clipName, { loop: false, restart: true });
 }
@@ -7530,6 +8189,7 @@ function knockDownEnemy(enemy) {
 function killEnemy(enemy) {
   enemy.health = 0;
   enemy.active = false;
+  stopEnemyMovementSound(enemy);
   trySpawnAmmoDrop(enemy);
   startEnemyTimedState(enemy, "dying", "Skeletons_Death", 1.1);
 }
@@ -7694,6 +8354,7 @@ function moveEnemyTowardWorldPoint(enemy, delta, targetX, targetZ, maxStepDistan
     enemy.model.position.z - previousZ,
   );
   if (enemyMoveDirection.lengthSq() > 0.0001) {
+    enemy.movedThisFrame = true;
     enemy.model.rotation.y = yawFromDirection(enemyMoveDirection.normalize());
   }
 }
@@ -9280,7 +9941,6 @@ function createPlatformWalls(activeTiles, materialId) {
 
 function createBoundaryWallRuns(activeTiles) {
   const runs = [];
-  const visited = new Set();
 
   for (const key of activeTiles) {
     const tile = parseTileKey(key);
@@ -9289,12 +9949,6 @@ function createBoundaryWallRuns(activeTiles) {
         continue;
       }
 
-      const seed = getWallRunSeed(activeTiles, tile, side);
-      if (visited.has(seed)) {
-        continue;
-      }
-
-      visited.add(seed);
       runs.push(createBoundaryWallRun(activeTiles, tile, side));
     }
   }
@@ -9304,47 +9958,23 @@ function createBoundaryWallRuns(activeTiles) {
 
 function createBoundaryWallRun(activeTiles, tile, side) {
   if (side === "north" || side === "south") {
-    let startX = tile.x;
-    let endX = tile.x;
-
-    while (hasBoundaryWall(activeTiles, { x: startX - 1, z: tile.z }, side)) {
-      startX -= 1;
-    }
-
-    while (hasBoundaryWall(activeTiles, { x: endX + 1, z: tile.z }, side)) {
-      endX += 1;
-    }
-
     const boundaryZ = side === "north" ? tile.z : tile.z + 1;
-    const length = endX - startX + 1;
     return {
       orientation: "x",
-      width: length * platformTileSize,
+      width: platformTileSize,
       depth: platformWallThickness,
-      x: (startX + length / 2 - mapCenter) * platformTileSize,
+      x: (tile.x + 0.5 - mapCenter) * platformTileSize,
       z: (boundaryZ - mapCenter) * platformTileSize,
     };
   }
 
-  let startZ = tile.z;
-  let endZ = tile.z;
-
-  while (hasBoundaryWall(activeTiles, { x: tile.x, z: startZ - 1 }, side)) {
-    startZ -= 1;
-  }
-
-  while (hasBoundaryWall(activeTiles, { x: tile.x, z: endZ + 1 }, side)) {
-    endZ += 1;
-  }
-
   const boundaryX = side === "west" ? tile.x : tile.x + 1;
-  const length = endZ - startZ + 1;
   return {
     orientation: "z",
     width: platformWallThickness,
-    depth: length * platformTileSize,
+    depth: platformTileSize,
     x: (boundaryX - mapCenter) * platformTileSize,
-    z: (startZ + length / 2 - mapCenter) * platformTileSize,
+    z: (tile.z + 0.5 - mapCenter) * platformTileSize,
   };
 }
 
@@ -9732,15 +10362,19 @@ function syncWeaponSlotHud() {
   }
 
   const activeWeaponId = getActiveCombatWeaponId();
+  const unlockedWeaponCount = combatWeaponConfigs
+    .filter((config) => isCombatWeaponUnlocked(config.id))
+    .length;
+  const showWeaponSlots = unlockedWeaponCount > 1;
   let visibleSlotCount = 0;
   for (const element of weaponSlotElements) {
     const weaponId = element.dataset.combatWeaponSlot;
     const unlocked = isCombatWeaponUnlocked(weaponId);
-    element.hidden = !unlocked;
+    element.hidden = !showWeaponSlots || !unlocked;
     element.classList.toggle("is-unlocked", unlocked);
     element.classList.toggle("is-active", unlocked && weaponId === activeWeaponId);
     element.setAttribute("aria-disabled", unlocked ? "false" : "true");
-    if (unlocked) {
+    if (showWeaponSlots && unlocked) {
       visibleSlotCount += 1;
     }
   }
@@ -9802,6 +10436,9 @@ function setCombatWeaponAmmo(weaponId, amount) {
 
 function addCombatWeaponAmmo(weaponId, amount) {
   setCombatWeaponAmmo(weaponId, getCombatWeaponAmmo(weaponId) + amount);
+  if (amount > 0) {
+    playAmmoReloadSound();
+  }
 }
 
 function triggerPlayerDamageFeedback() {

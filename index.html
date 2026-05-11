@@ -24,9 +24,45 @@
             <span class="start-title__the">The</span>
             <span class="start-title__rank">Rank</span>
           </h1>
-          <button class="start-button" id="startButton" type="button">PRESS START</button>
+          <div class="start-actions">
+            <button class="start-button" id="startButton" type="button">PRESS START</button>
+            <button class="start-option-button" data-options-open="start" type="button">Options</button>
+          </div>
         </div>
       </div>
+    </div>
+    <div
+      class="options-modal"
+      data-options-modal
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="optionsTitle"
+      hidden
+    >
+      <section class="options-card" aria-label="Options">
+        <h2 class="options-title" id="optionsTitle">Options</h2>
+        <div class="options-fields">
+          <label class="options-field" for="musicVolume">
+            <span class="options-field__header">
+              <span>Music</span>
+              <output id="musicVolumeValue" data-music-volume-value for="musicVolume">100</output>
+            </span>
+            <input id="musicVolume" data-music-volume type="range" min="0" max="100" step="1" value="100" />
+          </label>
+          <label class="options-field" for="sfxVolume">
+            <span class="options-field__header">
+              <span>Ambient Sound</span>
+              <output id="sfxVolumeValue" data-sfx-volume-value for="sfxVolume">100</output>
+            </span>
+            <input id="sfxVolume" data-sfx-volume type="range" min="0" max="100" step="1" value="100" />
+          </label>
+        </div>
+        <div class="options-actions" data-options-game-actions hidden>
+          <button class="options-button" data-options-restart type="button">Reiniciar</button>
+          <button class="options-button options-button--secondary" data-options-exit type="button">Sair</button>
+        </div>
+        <button class="options-button options-button--close" data-options-close type="button">Fechar</button>
+      </section>
     </div>
     <div class="dev-layout">
       <nav class="dev-tabs" role="tablist" aria-label="Paineis de ajustes">
@@ -265,6 +301,7 @@
             </div>
           </div>
         </div>
+        <button class="options-gear-button" data-options-open="game" type="button" aria-label="Options">⚙</button>
         <div class="run-timer" data-run-timer hidden>00:00:00</div>
         <div class="scene" data-scene></div>
         <div class="crosshair" data-crosshair aria-hidden="true">

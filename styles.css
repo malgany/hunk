@@ -145,6 +145,39 @@ body {
   animation: none;
 }
 
+.start-actions {
+  grid-column: 2;
+  display: grid;
+  justify-items: center;
+  gap: clamp(10px, 2.4cqh, 16px);
+  margin-top: clamp(26px, 8cqh, 54px);
+  pointer-events: auto;
+}
+
+.start-actions .start-button {
+  grid-column: auto;
+  margin-top: 0;
+}
+
+.start-option-button {
+  border: 1px solid rgb(255 255 255 / 42%);
+  border-radius: 7px;
+  padding: 8px 18px;
+  background: rgb(0 0 0 / 34%);
+  color: #f8f3ef;
+  cursor: pointer;
+  font: 800 clamp(0.9rem, 2.7cqh, 1.1rem) Inter, "Segoe UI", sans-serif;
+  line-height: 1;
+  text-transform: uppercase;
+  text-shadow: 0 3px 12px rgb(0 0 0 / 84%);
+}
+
+.start-option-button:hover,
+.start-option-button:focus-visible {
+  border-color: rgb(255 255 255 / 72%);
+  outline: none;
+}
+
 @keyframes press-start-blink {
   0%,
   46% {
@@ -357,6 +390,118 @@ body.is-runtime-mobile:not(.has-started) {
 .mobile-joystick,
 .mobile-fire-button {
   display: none;
+}
+
+.options-modal {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: calc(env(safe-area-inset-top) + 18px) 18px calc(env(safe-area-inset-bottom) + 18px);
+  background: rgb(0 0 0 / 58%);
+  pointer-events: auto;
+}
+
+.options-modal[hidden] {
+  display: none;
+}
+
+.options-card {
+  width: min(92vw, 420px);
+  border: 1px solid rgb(224 208 133 / 34%);
+  border-radius: 8px;
+  padding: 20px;
+  background: rgb(8 8 7 / 86%);
+  color: #f3efe1;
+  box-shadow: 0 24px 70px rgb(0 0 0 / 62%);
+  backdrop-filter: blur(12px);
+}
+
+.options-title {
+  margin: 0 0 18px;
+  color: #ffffff;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.options-fields {
+  display: grid;
+  gap: 16px;
+}
+
+.options-field {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.options-field__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.options-field output {
+  min-width: 42px;
+  color: #8ddeae;
+  text-align: right;
+}
+
+.options-field input[type="range"] {
+  width: 100%;
+  accent-color: #e0d085;
+}
+
+.options-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.options-actions[hidden] {
+  display: none;
+}
+
+.options-button {
+  min-width: 104px;
+  border: 1px solid rgb(224 208 133 / 36%);
+  border-radius: 7px;
+  padding: 10px 14px;
+  background: rgb(48 49 38 / 88%);
+  color: #f3efe1;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.options-button--secondary,
+.options-button--close {
+  background: rgb(18 18 15 / 78%);
+  color: rgb(243 239 225 / 76%);
+}
+
+.options-button--close {
+  display: block;
+  margin: 20px auto 0;
+}
+
+.options-button:hover,
+.options-button:focus-visible {
+  border-color: rgb(224 208 133 / 68%);
+  background: rgb(68 67 48 / 92%);
+  outline: none;
 }
 
 .dev-panel {
@@ -967,6 +1112,10 @@ body.is-runtime-mobile:not(.has-started) {
   transition: width 160ms ease;
 }
 
+.options-gear-button {
+  display: none;
+}
+
 .hud-right {
   display: flex;
   align-items: center;
@@ -1136,6 +1285,31 @@ body.is-runtime-mobile .weapon-slot__label {
   display: none;
 }
 
+body.is-runtime-mobile .options-gear-button {
+  position: absolute;
+  z-index: 8;
+  top: calc(env(safe-area-inset-top) + 54px);
+  left: calc(env(safe-area-inset-left) + 16px);
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid rgb(224 208 133 / 34%);
+  border-radius: 7px;
+  background: rgb(12 12 10 / 72%);
+  color: #f3efe1;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  pointer-events: auto;
+  backdrop-filter: blur(10px);
+}
+
+body.is-runtime-mobile .options-gear-button:focus-visible {
+  outline: 1px solid rgb(224 208 133 / 74%);
+  outline-offset: 3px;
+}
+
 .corpse-search-button {
   position: absolute;
   z-index: 7;
@@ -1297,6 +1471,10 @@ body.is-runtime-mobile .corpse-search-button__key {
 }
 
 .run-summary-record {
+  color: #ffffff;
+}
+
+.run-summary-table td.run-summary-record.is-new-record {
   color: #77d98c;
 }
 

@@ -12,21 +12,34 @@ const maxJsonBodySize = 512 * 1024;
 const mapConfigPath = path.join(root, "src", "map-config.js");
 const mapDirections = new Set(["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"]);
 const defaultMapDirection = "south";
-const materialIds = new Set([
+const floorMaterialIds = new Set([
   "concrete-base",
   "concrete-base-02",
   "debris-02",
   "soil-mud",
   "concrete-dirty-2",
+  ...createNumberedMaterialIds("grass"),
+  ...createNumberedMaterialIds("tile"),
+  ...createNumberedMaterialIds("wood"),
+]);
+const wallMaterialIds = new Set([
   "brick-modern-01",
   "concrete-dirty",
+  "concrete-dirty-2",
   "metal",
   "bricks",
+  ...createNumberedMaterialIds("bricks"),
+  ...createNumberedMaterialIds("wood"),
+]);
+const ceilingMaterialIds = new Set([
+  "bricks",
+  "concrete-dirty-2",
+  ...createNumberedMaterialIds("wood"),
 ]);
 const materialOptions = {
-  floor: materialIds,
-  wall: materialIds,
-  ceiling: materialIds,
+  floor: floorMaterialIds,
+  wall: wallMaterialIds,
+  ceiling: ceilingMaterialIds,
 };
 const defaultMapMaterials = {
   floor: "concrete-base",
@@ -45,6 +58,7 @@ const contentTypes = new Map([
   [".jpg", "image/jpeg"],
   [".jpeg", "image/jpeg"],
   [".webp", "image/webp"],
+  [".mp3", "audio/mpeg"],
 ]);
 
 function createServer(port) {
@@ -252,6 +266,10 @@ function normalizeMapMaterials(materials) {
 
 function normalizeMaterialId(surface, value) {
   return materialOptions[surface]?.has(value) ? value : defaultMapMaterials[surface];
+}
+
+function createNumberedMaterialIds(prefix, count = 25) {
+  return Array.from({ length: count }, (_, index) => `${prefix}-${String(index + 1).padStart(2, "0")}`);
 }
 
 function isMapPointInsideTiles(position, tileKeys) {
