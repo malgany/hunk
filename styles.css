@@ -1981,7 +1981,9 @@ body.is-scene-loading .status {
   border: 0;
   border-radius: 0;
   padding: 24px;
-  background: #000;
+  overflow: hidden;
+  isolation: isolate;
+  background: #050505 var(--loading-screen-image, url("./assets/load-screen-1.webp")) center / cover no-repeat;
   color: #f3efe1;
   font-size: clamp(1rem, 2.8vw, 1.45rem);
   font-weight: 800;
@@ -1991,7 +1993,32 @@ body.is-scene-loading .status {
   transform: none;
 }
 
+body.load-screen--1 {
+  --loading-screen-image: url("./assets/load-screen-1.webp");
+}
+
+body.load-screen--2 {
+  --loading-screen-image: url("./assets/load-screen-2.webp");
+}
+
+body.is-scene-loading .status::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  content: "";
+  background:
+    linear-gradient(180deg, rgb(0 0 0 / 20%) 0%, rgb(0 0 0 / 4%) 42%, rgb(0 0 0 / 58%) 100%),
+    radial-gradient(ellipse at center, rgb(0 0 0 / 0%) 0 42%, rgb(0 0 0 / 42%) 100%);
+  pointer-events: none;
+}
+
 body.is-scene-loading .status__text {
+  position: relative;
+  padding: 10px 16px;
+  border: 1px solid rgb(255 255 255 / 20%);
+  border-radius: 7px;
+  background: rgb(0 0 0 / 52%);
+  box-shadow: 0 12px 34px rgb(0 0 0 / 36%);
   text-shadow: 0 0 18px rgb(243 239 225 / 34%);
   animation: loadingTextPulse 1.35s ease-in-out infinite;
 }

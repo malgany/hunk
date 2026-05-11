@@ -45,6 +45,7 @@ const mobileFireButton = document.querySelector("[data-mobile-fire-button]");
 const corpseSearchButton = document.querySelector("[data-corpse-search-button]");
 const startScreen = document.querySelector("#startScreen");
 const startButton = document.querySelector("#startButton");
+const loadingScreenClassNames = ["load-screen--1", "load-screen--2"];
 const mapCanvas = document.querySelector("#mapCanvas");
 const mapViewport = document.querySelector("#mapViewport");
 const mapStatus = document.querySelector("#mapStatus");
@@ -275,6 +276,7 @@ const freeCameraWheelSpeed = 0.018;
 const playerWalkSpeed = 5.4;
 const playerRunSpeed = 9.4;
 const playerAimMoveSpeedMultiplier = 0.62;
+const pistolMoveSpeedMultiplier = 1.2;
 const playerCollisionRadius = 0.72;
 const playerWallCollisionPadding = platformWallThickness / 2 + 0.18;
 const playerMouseYawSensitivity = 0.0028;
@@ -348,8 +350,8 @@ const enemyPathRepathInterval = 0.45;
 const enemyPathWaypointRadius = 0.32;
 const enemyInitialInactiveFloorChance = 0.5;
 const enemyCollisionRadius = 0.75;
-const enemyMovementSoundVolume = 0.52;
-const enemyMovementSoundBossVolume = 0.64;
+const enemyMovementSoundVolume = 0.728;
+const enemyMovementSoundBossVolume = 0.896;
 const enemyMovementSoundRefDistance = platformTileSize * 0.85;
 const enemyMovementSoundMaxDistance = enemyVisionDistance * 1.08;
 const enemyMovementSoundRolloff = 1.7;
@@ -1660,11 +1662,17 @@ async function loadScene() {
 }
 
 function showSceneLoadingOverlay() {
+  setRandomSceneLoadingBackground();
   document.body.classList.add("is-scene-loading");
 }
 
 function hideSceneLoadingOverlay() {
   document.body.classList.remove("is-scene-loading");
+}
+
+function setRandomSceneLoadingBackground() {
+  document.body.classList.remove(...loadingScreenClassNames);
+  document.body.classList.add(Math.random() < 0.5 ? loadingScreenClassNames[0] : loadingScreenClassNames[1]);
 }
 
 function loadGltf(url) {
@@ -2111,7 +2119,8 @@ async function enterPreferredFullscreenAndOrientation() {
     return;
   }
 
-  const fullscreenTarget = phoneShellElement || document.documentElement;
+  // Keep global overlays, including options, inside the fullscreen tree.
+  const fullscreenTarget = document.documentElement;
   try {
     if (!document.fullscreenElement && fullscreenTarget.requestFullscreen) {
       await fullscreenTarget.requestFullscreen({ navigationUI: "hide" });
@@ -3684,7 +3693,9 @@ function updatePlayerControls(delta) {
 
   if (isMoving) {
     const baseSpeed = isRunning ? playerRunSpeed : playerWalkSpeed;
-    const speed = playerControlState.aiming ? baseSpeed * playerAimMoveSpeedMultiplier : baseSpeed;
+    const aimAdjustedSpeed = playerControlState.aiming ? baseSpeed * playerAimMoveSpeedMultiplier : baseSpeed;
+    const weaponSpeedMultiplier = activeWeapon?.id === defaultCombatWeaponId ? pistolMoveSpeedMultiplier : 1;
+    const speed = aimAdjustedSpeed * weaponSpeedMultiplier;
     movement.normalize().multiplyScalar(speed * movementAmount * delta);
     moveCharacterWithCollision(movement);
     syncMapPlayerPositionFromCharacter();
