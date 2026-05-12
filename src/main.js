@@ -214,7 +214,6 @@ const platformTileGap = 0.04;
 const platformWallTilesHigh = 2;
 const platformWallHeight = platformTileSize * platformWallTilesHigh;
 const platformWallThickness = 0.32;
-const platformCeilingThickness = 0.2;
 const wallOcclusionOpacity = 0.16;
 const cameraCollisionRadius = 1.05;
 const cameraCollisionWallPadding = 0.42;
@@ -9775,14 +9774,12 @@ function createPlatform(mapSnapshot) {
   const materialSelection = {
     floor: normalizeMapMaterialId("floor", mapSnapshot.materials?.floor),
     wall: normalizeMapMaterialId("wall", mapSnapshot.materials?.wall),
-    ceiling: normalizeMapMaterialId("ceiling", mapSnapshot.materials?.ceiling),
   };
   const tileSize = mapSnapshot.showTileEdges ? platformTileSize - platformTileGap : platformTileSize;
   const floor = createPlatformFloor(mapSnapshot.activeTiles, materialSelection.floor, tileSize);
 
   const seams = mapSnapshot.showTileEdges ? createPlatformSeamLines(mapSnapshot.activeTiles) : null;
   const walls = mapSnapshot.isCovered ? createPlatformWalls(mapSnapshot.activeTiles, materialSelection.wall) : null;
-  const ceiling = mapSnapshot.isCovered ? createPlatformCeiling(mapSnapshot.activeTiles, materialSelection.ceiling) : null;
 
   if (floor) {
     platform.add(floor);
@@ -9794,10 +9791,6 @@ function createPlatform(mapSnapshot) {
 
   if (walls) {
     platform.add(walls);
-  }
-
-  if (ceiling) {
-    platform.add(ceiling);
   }
 
   return platform;
@@ -10034,27 +10027,6 @@ function createPlatformSeamLines(activeTiles) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   return new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0xe6d078 }));
-}
-
-function createPlatformCeiling(activeTiles, materialId) {
-  const ceilingGeometry = new THREE.BoxGeometry(
-    platformTileSize,
-    platformCeilingThickness,
-    platformTileSize,
-  );
-  const geometry = createMergedTranslatedGeometry(ceilingGeometry, activeTiles, (tile, matrix) => {
-    const center = mapTileCenterToWorld(tile);
-    matrix.makeTranslation(center.x, platformWallHeight + platformCeilingThickness / 2, center.z);
-  });
-  ceilingGeometry.dispose();
-
-  if (!geometry) {
-    return null;
-  }
-
-  const ceiling = new THREE.Mesh(geometry, createSewerSurfaceMaterial("ceiling", materialId));
-  ceiling.name = "SewerCeilingMerged";
-  return configureShadowMesh(ceiling);
 }
 
 function createPlatformWalls(activeTiles, materialId) {
