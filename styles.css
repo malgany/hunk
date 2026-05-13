@@ -1416,7 +1416,10 @@ body.is-runtime-mobile .corpse-search-button__key {
 }
 
 .run-summary-card {
+  position: relative;
   width: min(92%, 470px);
+  max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 36px);
+  overflow: auto;
   border: 1px solid rgb(224 208 133 / 30%);
   border-radius: 8px;
   padding: 20px;
@@ -1476,6 +1479,198 @@ body.is-runtime-mobile .corpse-search-button__key {
 
 .run-summary-table td.run-summary-record.is-new-record {
   color: #77d98c;
+}
+
+.run-summary-back-button {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgb(224 208 133 / 28%);
+  border-radius: 7px;
+  background: rgb(18 18 15 / 78%);
+  color: #f3efe1;
+  cursor: pointer;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.run-summary-back-button[hidden] {
+  display: none;
+}
+
+.run-summary-back-button:focus-visible,
+.run-summary-back-button:hover {
+  border-color: rgb(224 208 133 / 68%);
+  background: rgb(68 67 48 / 92%);
+  outline: none;
+}
+
+.run-record-time-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  text-align: right;
+  text-transform: inherit;
+}
+
+.run-record-time-link:focus-visible,
+.run-record-time-link:hover {
+  color: #ffffff;
+  outline: none;
+}
+
+.run-record-time-link__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgb(224 208 133 / 38%);
+  border-radius: 6px;
+  background: rgb(18 18 15 / 62%);
+  color: #f3efe1;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.run-record-time-link:focus-visible .run-record-time-link__icon,
+.run-record-time-link:hover .run-record-time-link__icon {
+  border-color: rgb(224 208 133 / 68%);
+  background: rgb(68 67 48 / 92%);
+}
+
+.run-nickname-form {
+  display: grid;
+  gap: 12px;
+}
+
+.run-nickname-field {
+  display: grid;
+  gap: 8px;
+}
+
+.run-nickname-field__label {
+  color: rgb(243 239 225 / 74%);
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.run-nickname-field__input {
+  width: min(100%, 180px);
+  justify-self: center;
+  border: 1px solid rgb(224 208 133 / 34%);
+  border-radius: 7px;
+  padding: 11px 12px;
+  background: rgb(10 10 8 / 72%);
+  color: #ffffff;
+  font: inherit;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+  outline: none;
+}
+
+.run-nickname-field__input:focus {
+  border-color: rgb(224 208 133 / 68%);
+}
+
+.run-nickname-form__status {
+  min-height: 14px;
+  margin: 0;
+  color: rgb(243 239 225 / 66%);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.run-nickname-form__button {
+  justify-self: center;
+}
+
+.record-time-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+  margin-bottom: 12px;
+}
+
+.record-time-tab {
+  min-width: 0;
+  min-height: 32px;
+  border: 1px solid rgb(224 208 133 / 20%);
+  border-radius: 7px;
+  padding: 7px 5px;
+  background: rgb(18 18 15 / 68%);
+  color: rgb(243 239 225 / 68%);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.record-time-tab.is-active {
+  border-color: rgb(224 208 133 / 62%);
+  background: rgb(68 67 48 / 78%);
+  color: #ffffff;
+}
+
+.record-time-tab:focus-visible,
+.record-time-tab:hover {
+  border-color: rgb(224 208 133 / 68%);
+  outline: none;
+}
+
+.record-time-table th:first-child,
+.record-time-table td:first-child {
+  width: 42px;
+}
+
+.record-time-table tbody tr:last-child td {
+  border-bottom: 1px solid rgb(255 255 255 / 10%);
+  padding: 8px 6px;
+  color: #f3efe1;
+  font-weight: 900;
+}
+
+.record-time-table th:nth-child(2),
+.record-time-table td:nth-child(2) {
+  text-align: left;
+}
+
+.record-time-status {
+  min-height: 14px;
+  margin: 10px 0 0;
+  color: rgb(243 239 225 / 62%);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-align: center;
 }
 
 .run-summary-actions {

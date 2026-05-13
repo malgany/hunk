@@ -39,7 +39,7 @@ Observacao: a shotgun nasce com 10 balas quando e pega no bau, mas o limite maxi
 - Desktop: aproxime em ate cerca de 1 tile de um esqueleto morto e pressione `E`.
 - Mobile: aproxime em ate cerca de 1 tile de um esqueleto morto e toque em `Vasculhar`.
 - A busca dura 6 segundos e usa a animacao `PickUp`.
-- Ao terminar, o corpo some; ha 50% de chance de encontrar `+5` municoes de uma arma desbloqueada.
+- Ao terminar, o corpo some; ha 50% de chance de encontrar `+5` municoes de uma arma desbloqueada. Se todas as armas desbloqueadas estiverem sem municao, a busca encontra municao com 100% de chance.
 - Se nada for encontrado, aparece `Nada encontrado`.
 
 ## Timer e recordes
@@ -50,6 +50,116 @@ Observacao: a shotgun nasce com 10 balas quando e pega no bau, mas o limite maxi
 - Recordes ficam no navegador em `localStorage`, na chave `theRank.records.v1`.
 - Recordes por fase so atualizam quando a fase e concluida.
 - O recorde total so atualiza quando a run completa todos os andares.
+
+## Ranking online com Firebase
+
+O jogo continua compativel com GitHub Pages. Para ativar o ranking mundial, crie um Firebase Realtime Database e preencha `databaseUrl` no bloco `window.theRankFirebaseLeaderboard` em `index.html`:
+
+```html
+<script>
+  window.theRankFirebaseLeaderboard = {
+    databaseUrl: "https://hunk-ranking-default-rtdb.firebaseio.com",
+    path: "rankings",
+  };
+</script>
+```
+
+Ao fim da run, o jogo pede um nickname de ate 5 caracteres, aceitando apenas `A-Z` e `0-9`. Quando a run e concluida, o jogo tenta salvar os Top 5 tempos de `floor1`, `floor2`, `floor3`, `floor4` e `totalRun`. Cada registro usa `{ nome, tempo, criadoEm }`, com `tempo` em milissegundos. Se o player morrer, nada e enviado para o ranking online.
+
+Regras simples para o Realtime Database:
+
+```json
+{
+  "rules": {
+    "rankings": {
+      "$category": {
+        ".read": "$category.matches(/^(floor1|floor2|floor3|floor4|totalRun)$/)",
+        ".write": "$category.matches(/^(floor1|floor2|floor3|floor4|totalRun)$/) && newData.exists()",
+        "1": {
+          ".validate": "newData.hasChildren(['nome', 'tempo', 'criadoEm'])",
+          "nome": {
+            ".validate": "newData.isString() && newData.val().matches(/^[A-Z0-9]{1,5}$/)"
+          },
+          "tempo": {
+            ".validate": "newData.isNumber() && newData.val() >= 1000 && newData.val() <= 10800000"
+          },
+          "criadoEm": {
+            ".validate": "newData.isNumber() && newData.val() > 0"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "2": {
+          ".validate": "newData.hasChildren(['nome', 'tempo', 'criadoEm'])",
+          "nome": {
+            ".validate": "newData.isString() && newData.val().matches(/^[A-Z0-9]{1,5}$/)"
+          },
+          "tempo": {
+            ".validate": "newData.isNumber() && newData.val() >= 1000 && newData.val() <= 10800000"
+          },
+          "criadoEm": {
+            ".validate": "newData.isNumber() && newData.val() > 0"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "3": {
+          ".validate": "newData.hasChildren(['nome', 'tempo', 'criadoEm'])",
+          "nome": {
+            ".validate": "newData.isString() && newData.val().matches(/^[A-Z0-9]{1,5}$/)"
+          },
+          "tempo": {
+            ".validate": "newData.isNumber() && newData.val() >= 1000 && newData.val() <= 10800000"
+          },
+          "criadoEm": {
+            ".validate": "newData.isNumber() && newData.val() > 0"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "4": {
+          ".validate": "newData.hasChildren(['nome', 'tempo', 'criadoEm'])",
+          "nome": {
+            ".validate": "newData.isString() && newData.val().matches(/^[A-Z0-9]{1,5}$/)"
+          },
+          "tempo": {
+            ".validate": "newData.isNumber() && newData.val() >= 1000 && newData.val() <= 10800000"
+          },
+          "criadoEm": {
+            ".validate": "newData.isNumber() && newData.val() > 0"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "5": {
+          ".validate": "newData.hasChildren(['nome', 'tempo', 'criadoEm'])",
+          "nome": {
+            ".validate": "newData.isString() && newData.val().matches(/^[A-Z0-9]{1,5}$/)"
+          },
+          "tempo": {
+            ".validate": "newData.isNumber() && newData.val() >= 1000 && newData.val() <= 10800000"
+          },
+          "criadoEm": {
+            ".validate": "newData.isNumber() && newData.val() > 0"
+          },
+          "$other": {
+            ".validate": false
+          }
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    }
+  }
+}
+```
+
+Essas regras evitam bagunca acidental e limitam cada categoria ao Top 5, mas nao impedem trapaca de alguem que chame o banco diretamente pelo navegador.
 
 ## Rodando localmente
 

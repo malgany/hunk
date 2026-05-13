@@ -353,9 +353,10 @@
           hidden
         >
           <section class="run-summary-card" aria-label="Resumo da run">
+            <button class="run-summary-back-button" data-run-summary-back-button type="button" aria-label="Voltar" hidden>&lt;</button>
             <h2 class="run-summary-title" id="runSummaryTitle" data-run-summary-title>Você morreu</h2>
             <div class="run-summary-body" data-run-summary-body></div>
-            <div class="run-summary-actions">
+            <div class="run-summary-actions" data-run-summary-actions>
               <button class="run-summary-button" data-restart-run-button type="button">Reiniciar</button>
               <button class="run-summary-button run-summary-button--secondary" data-exit-run-button type="button">Sair</button>
             </div>
@@ -504,6 +505,12 @@
         </aside>
       </div>
     </div>
+    <script>
+      window.theRankFirebaseLeaderboard = {
+        databaseUrl: "https://hunk-ranking-default-rtdb.firebaseio.com",
+        path: "rankings",
+      };
+    </script>
     <script type="module" src="./src/main.js"></script>
   </body>
 </html>

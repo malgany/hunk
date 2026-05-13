@@ -21,8 +21,10 @@ const damageFlashElement = document.querySelector("[data-damage-flash]");
 const stageBannerElement = document.querySelector("[data-stage-banner]");
 const runTimerElement = document.querySelector("[data-run-timer]");
 const runSummaryModalElement = document.querySelector("[data-run-summary-modal]");
+const runSummaryBackButton = document.querySelector("[data-run-summary-back-button]");
 const runSummaryTitleElement = document.querySelector("[data-run-summary-title]");
 const runSummaryBodyElement = document.querySelector("[data-run-summary-body]");
+const runSummaryActionsElement = document.querySelector("[data-run-summary-actions]");
 const startRecordsOpenButton = document.querySelector("[data-start-records-open]");
 const startRecordsModalElement = document.querySelector("[data-start-records-modal]");
 const startRecordsBodyElement = document.querySelector("[data-start-records-body]");
@@ -325,6 +327,21 @@ const shotgunPickupRadius = 1.15;
 const shotgunDropDuration = 0.72;
 const shotgunDropArcHeight = 0.9;
 const runRecordsStorageKey = "theRank.records.v1";
+const leaderboardNameStorageKey = "theRank.leaderboardName.v1";
+const leaderboardConfig = createLeaderboardConfig(window.theRankFirebaseLeaderboard);
+const leaderboardMinTimeMs = 1000;
+const leaderboardMaxTimeMs = 3 * 60 * 60 * 1000;
+const leaderboardLimit = 5;
+const leaderboardRequestTimeoutMs = 8000;
+const leaderboardMaxNameLength = 5;
+const leaderboardCategories = [
+  { id: "floor1", label: "Floor 1", type: "floor", floorIndex: 0 },
+  { id: "floor2", label: "Floor 2", type: "floor", floorIndex: 1 },
+  { id: "floor3", label: "Floor 3", type: "floor", floorIndex: 2 },
+  { id: "floor4", label: "Floor 4", type: "floor", floorIndex: 3 },
+  { id: "totalRun", label: "Total Run", type: "total" },
+];
+const leaderboardDefaultCategoryId = "totalRun";
 const optionsStorageKey = "theRank.options.v1";
 const damageNumberCanvasWidth = 128;
 const damageNumberCanvasHeight = 80;
@@ -795,6 +812,7 @@ let gameplayCameraIntroState = createGameplayCameraIntroState();
 let gameplayCameraOutroState = createGameplayCameraOutroState();
 let collisionDebugState = createCollisionDebugState();
 let optionsMenuState = createOptionsMenuState();
+let runSummaryViewState = createRunSummaryViewState();
 let platformGroup = null;
 let enemySourceModel = null;
 let enemyGroup = null;
@@ -2138,6 +2156,9 @@ async function enterPreferredFullscreenAndOrientation() {
 }
 
 function setupRunSummaryControls() {
+  runSummaryBackButton?.addEventListener("click", () => {
+    renderRunSummaryFromState();
+  });
   restartRunButton?.addEventListener("click", () => {
     void restartRun();
   });
@@ -4684,7 +4705,8 @@ function startCorpseSearch(enemy) {
 
 function finishCorpseSearch() {
   const enemy = corpseSearchState.enemy;
-  const weaponId = Math.random() < corpseSearchFindChance
+  const shouldForceAmmoFind = !hasAnyUnlockedCombatWeaponAmmo();
+  const weaponId = shouldForceAmmoFind || Math.random() < corpseSearchFindChance
     ? pickCorpseSearchWeaponId()
     : null;
 
@@ -4763,6 +4785,11 @@ function getUnlockedCombatWeaponIds() {
   return combatWeaponConfigs
     .filter((config) => isCombatWeaponUnlocked(config.id))
     .map((config) => config.id);
+}
+
+function hasAnyUnlockedCombatWeaponAmmo() {
+  return getUnlockedCombatWeaponIds()
+    .some((weaponId) => getCombatWeaponAmmo(weaponId) > 0);
 }
 
 function isSearchableCorpse(enemy) {
@@ -7567,7 +7594,7 @@ function finishRun(outcome) {
   stopGameplayInputForRunSummary();
   runTimingState.resultShown = true;
   const recordResult = updateRunRecords(outcome);
-  renderRunSummary(outcome, recordResult.records, recordResult);
+  renderRunNicknamePrompt(outcome, recordResult.records, recordResult);
 }
 
 function stopGameplayInputForRunSummary() {
@@ -7661,9 +7688,329 @@ function saveRunRecords(records) {
   }
 }
 
+function isLeaderboardConfigured() {
+  return /^https:\/\/.+\.firebaseio\.com$|^https:\/\/.+\.firebasedatabase\.app$/i.test(leaderboardConfig.databaseUrl)
+    && Boolean(leaderboardConfig.path);
+}
+
+async function fetchLeaderboardJson(url, options = {}) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), leaderboardRequestTimeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Leaderboard request failed: ${response.status}`);
+    }
+    return response.json();
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+function isValidLeaderboardTime(timeMs) {
+  const normalizedTime = normalizeRecordTime(timeMs);
+  return normalizedTime !== null
+    && normalizedTime >= leaderboardMinTimeMs
+    && normalizedTime <= leaderboardMaxTimeMs;
+}
+
+function loadLeaderboardPlayerName() {
+  try {
+    return normalizeLeaderboardName(window.localStorage.getItem(leaderboardNameStorageKey));
+  } catch {
+    return "";
+  }
+}
+
+function saveLeaderboardPlayerName(name) {
+  try {
+    window.localStorage.setItem(leaderboardNameStorageKey, name);
+  } catch {
+    // The submitted score still works if local storage is unavailable.
+  }
+}
+
 function normalizeRecordTime(value) {
   const time = Number(value);
   return Number.isFinite(time) && time > 0 ? time : null;
+}
+
+function closeStartRecordsModal() {
+  if (!startRecordsModalElement) {
+    return;
+  }
+
+  startRecordsModalElement.hidden = true;
+  startRecordsOpenButton?.focus?.();
+}
+
+function createRunSummaryViewState() {
+  return {
+    view: "summary",
+    outcome: null,
+    records: null,
+    recordResult: null,
+    nickname: "",
+    selectedLeaderboardCategoryId: leaderboardDefaultCategoryId,
+  };
+}
+
+function createLeaderboardConfig(source = {}) {
+  const databaseUrl = typeof source.databaseUrl === "string"
+    ? source.databaseUrl.trim().replace(/\/+$/, "")
+    : "";
+  const path = typeof source.path === "string"
+    ? source.path.trim().replace(/^\/+|\/+$/g, "")
+    : "";
+
+  return {
+    databaseUrl,
+    path: path || "rankings",
+  };
+}
+
+function getLeaderboardEndpoint(categoryId = null) {
+  const categoryPath = categoryId ? `/${categoryId}` : "";
+  return `${leaderboardConfig.databaseUrl}/${leaderboardConfig.path}${categoryPath}.json`;
+}
+
+function getLeaderboardCategory(categoryId) {
+  return leaderboardCategories.find((category) => category.id === categoryId) || null;
+}
+
+function normalizeLeaderboardName(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, leaderboardMaxNameLength);
+}
+
+async function loadLeaderboardCategoryEntries(categoryId) {
+  if (!isLeaderboardConfigured() || !getLeaderboardCategory(categoryId)) {
+    return [];
+  }
+
+  const data = await fetchLeaderboardJson(getLeaderboardEndpoint(categoryId));
+  if (!data || typeof data !== "object") {
+    return [];
+  }
+
+  return Object.entries(data)
+    .filter(([rank]) => Number.isInteger(Number(rank)) && Number(rank) >= 1 && Number(rank) <= leaderboardLimit)
+    .map(([, entry]) => normalizeLeaderboardEntry(entry))
+    .filter(Boolean)
+    .sort(compareLeaderboardEntries)
+    .slice(0, leaderboardLimit);
+}
+
+function normalizeLeaderboardEntry(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+
+  const name = normalizeLeaderboardName(entry.nome);
+  const timeMs = normalizeRecordTime(entry.tempo ?? entry.timeMs);
+  if (!name || !isValidLeaderboardTime(timeMs)) {
+    return null;
+  }
+
+  return {
+    name,
+    timeMs: Math.round(timeMs),
+    createdAt: Math.max(0, Math.round(Number(entry.criadoEm) || 0)),
+  };
+}
+
+function compareLeaderboardEntries(a, b) {
+  return a.timeMs - b.timeMs
+    || a.createdAt - b.createdAt
+    || a.name.localeCompare(b.name);
+}
+
+async function updateLeaderboardCategory(categoryId, candidate) {
+  if (!isLeaderboardConfigured() || !getLeaderboardCategory(categoryId)) {
+    return false;
+  }
+
+  const candidateEntry = normalizeLeaderboardEntry(candidate);
+  if (!candidateEntry) {
+    return false;
+  }
+
+  const currentEntries = await loadLeaderboardCategoryEntries(categoryId);
+  const rankedEntries = [...currentEntries, candidateEntry]
+    .sort(compareLeaderboardEntries)
+    .slice(0, leaderboardLimit);
+
+  if (!rankedEntries.includes(candidateEntry)) {
+    return false;
+  }
+
+  await saveLeaderboardCategoryEntries(categoryId, rankedEntries);
+  return true;
+}
+
+async function saveLeaderboardCategoryEntries(categoryId, entries) {
+  const payload = {};
+  entries.slice(0, leaderboardLimit).forEach((entry, index) => {
+    payload[String(index + 1)] = {
+      nome: entry.name,
+      tempo: Math.round(entry.timeMs),
+      criadoEm: Math.round(entry.createdAt || Date.now()),
+    };
+  });
+
+  await fetchLeaderboardJson(getLeaderboardEndpoint(categoryId), {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+async function submitRunLeaderboardScores(name) {
+  if (!isLeaderboardConfigured()) {
+    return;
+  }
+
+  const nickname = normalizeLeaderboardName(name);
+  if (!nickname) {
+    return;
+  }
+
+  const createdAt = Date.now();
+  const candidates = [];
+  for (const category of leaderboardCategories) {
+    const timeMs = category.type === "total"
+      ? runTimingState.totalElapsedMs
+      : runTimingState.floorTimesMs[category.floorIndex];
+    const completed = category.type === "total"
+      || runTimingState.floorCompleted[category.floorIndex];
+    if (completed && isValidLeaderboardTime(timeMs)) {
+      candidates.push({
+        categoryId: category.id,
+        entry: {
+          nome: nickname,
+          tempo: Math.round(timeMs),
+          criadoEm: createdAt,
+        },
+      });
+    }
+  }
+
+  await Promise.all(candidates.map((candidate) => (
+    updateLeaderboardCategory(candidate.categoryId, candidate.entry)
+  )));
+}
+
+function renderRunNicknamePrompt(outcome, records = loadRunRecords(), recordResult = null) {
+  if (!runSummaryModalElement || !runSummaryBodyElement) {
+    return;
+  }
+
+  runSummaryViewState = {
+    ...createRunSummaryViewState(),
+    view: "nickname",
+    outcome,
+    records,
+    recordResult,
+    nickname: loadLeaderboardPlayerName(),
+  };
+  setRunSummaryActionsVisible(false);
+  setRunSummaryBackVisible(false);
+  if (runSummaryTitleElement) {
+    runSummaryTitleElement.textContent = "Nickname";
+  }
+
+  const form = document.createElement("form");
+  form.className = "run-nickname-form";
+
+  const field = document.createElement("label");
+  field.className = "run-nickname-field";
+
+  const label = document.createElement("span");
+  label.className = "run-nickname-field__label";
+  label.textContent = "Digite seu nick";
+
+  const input = document.createElement("input");
+  input.className = "run-nickname-field__input";
+  input.type = "text";
+  input.inputMode = "text";
+  input.name = "leaderboardNickname";
+  input.maxLength = leaderboardMaxNameLength;
+  input.autocomplete = "nickname";
+  input.value = runSummaryViewState.nickname;
+
+  const status = document.createElement("p");
+  status.className = "run-nickname-form__status";
+  status.textContent = "Use ate 5 letras ou numeros.";
+
+  const button = document.createElement("button");
+  button.className = "run-summary-button run-nickname-form__button";
+  button.type = "submit";
+  button.textContent = "Avancar";
+
+  input.addEventListener("input", () => {
+    const normalizedName = normalizeLeaderboardName(input.value);
+    if (input.value !== normalizedName) {
+      input.value = normalizedName;
+    }
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const nickname = normalizeLeaderboardName(input.value);
+    if (!nickname) {
+      status.textContent = "Digite pelo menos 1 letra ou numero.";
+      input.focus();
+      return;
+    }
+
+    input.value = nickname;
+    input.disabled = true;
+    button.disabled = true;
+    saveLeaderboardPlayerName(nickname);
+    runSummaryViewState.nickname = nickname;
+
+    if (outcome === "complete" && isLeaderboardConfigured()) {
+      status.textContent = "Salvando ranking...";
+      try {
+        await submitRunLeaderboardScores(nickname);
+      } catch {
+        // The local summary must stay available even when the public ranking fails.
+      }
+    }
+
+    renderRunSummaryFromState();
+  });
+
+  field.append(label, input);
+  form.append(field, status, button);
+  runSummaryBodyElement.replaceChildren(form);
+  runSummaryModalElement.hidden = false;
+  window.requestAnimationFrame(() => {
+    input.focus();
+    input.select();
+  });
+}
+
+function renderRunSummaryFromState() {
+  if (!runSummaryViewState.outcome || !runSummaryViewState.records) {
+    return;
+  }
+
+  renderRunSummary(
+    runSummaryViewState.outcome,
+    runSummaryViewState.records,
+    runSummaryViewState.recordResult,
+  );
 }
 
 function renderRunSummary(outcome, records = loadRunRecords(), recordResult = null) {
@@ -7671,17 +8018,61 @@ function renderRunSummary(outcome, records = loadRunRecords(), recordResult = nu
     return;
   }
 
+  runSummaryViewState = {
+    ...runSummaryViewState,
+    view: "summary",
+    outcome,
+    records,
+    recordResult,
+  };
+  setRunSummaryActionsVisible(true);
+  setRunSummaryBackVisible(false);
   if (runSummaryTitleElement) {
-    runSummaryTitleElement.textContent = outcome === "complete" ? "Run Complete" : "Você morreu";
+    runSummaryTitleElement.textContent = outcome === "complete" ? "Run Complete" : "Voce morreu";
   }
 
-  const table = createRunRecordsTable({
+  runSummaryBodyElement.replaceChildren(createRunRecordsTable({
     records,
     includeCurrentRun: true,
     recordResult,
-  });
-  runSummaryBodyElement.replaceChildren(table);
+  }));
   runSummaryModalElement.hidden = false;
+}
+
+function renderRecordTimeView(categoryId = leaderboardDefaultCategoryId) {
+  if (!runSummaryModalElement || !runSummaryBodyElement) {
+    return;
+  }
+
+  const category = getLeaderboardCategory(categoryId) || getLeaderboardCategory(leaderboardDefaultCategoryId);
+  runSummaryViewState = {
+    ...runSummaryViewState,
+    view: "record-time",
+    selectedLeaderboardCategoryId: category.id,
+  };
+  setRunSummaryActionsVisible(true);
+  setRunSummaryBackVisible(true);
+  if (runSummaryTitleElement) {
+    runSummaryTitleElement.textContent = "Record Time";
+  }
+
+  const tabs = createRecordTimeTabs(category.id);
+  const leaderboardTable = createRecordTimeLeaderboardTable(category.id);
+  runSummaryBodyElement.replaceChildren(tabs, leaderboardTable.section);
+  runSummaryModalElement.hidden = false;
+  refreshRecordTimeLeaderboardTable(category.id, leaderboardTable.tbody, leaderboardTable.status);
+}
+
+function setRunSummaryActionsVisible(visible) {
+  if (runSummaryActionsElement) {
+    runSummaryActionsElement.hidden = !visible;
+  }
+}
+
+function setRunSummaryBackVisible(visible) {
+  if (runSummaryBackButton) {
+    runSummaryBackButton.hidden = !visible;
+  }
 }
 
 function openStartRecordsModal() {
@@ -7699,13 +8090,93 @@ function openStartRecordsModal() {
   });
 }
 
-function closeStartRecordsModal() {
-  if (!startRecordsModalElement) {
+function createRecordTimeTabs(activeCategoryId) {
+  const tabs = document.createElement("div");
+  tabs.className = "record-time-tabs";
+  tabs.setAttribute("role", "tablist");
+  tabs.setAttribute("aria-label", "Record Time");
+
+  for (const category of leaderboardCategories) {
+    const button = document.createElement("button");
+    const isActive = category.id === activeCategoryId;
+    button.className = "record-time-tab";
+    button.classList.toggle("is-active", isActive);
+    button.type = "button";
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", String(isActive));
+    button.textContent = category.label;
+    button.addEventListener("click", () => {
+      renderRecordTimeView(category.id);
+    });
+    tabs.append(button);
+  }
+
+  return tabs;
+}
+
+function createRecordTimeLeaderboardTable(categoryId) {
+  const section = document.createElement("section");
+  section.className = "record-time-panel";
+  section.setAttribute("role", "tabpanel");
+  section.setAttribute("aria-label", getLeaderboardCategory(categoryId)?.label || "Record Time");
+
+  const table = document.createElement("table");
+  table.className = "run-summary-table record-time-table";
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const label of ["#", "Nickname", "Record Time"]) {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headRow.append(th);
+  }
+  thead.append(headRow);
+
+  const tbody = document.createElement("tbody");
+  renderRecordTimeRows(tbody, []);
+  table.append(thead, tbody);
+
+  const status = document.createElement("p");
+  status.className = "record-time-status";
+
+  section.append(table, status);
+  return { section, tbody, status };
+}
+
+async function refreshRecordTimeLeaderboardTable(categoryId, tbody, status) {
+  renderRecordTimeRows(tbody, []);
+  status.textContent = "";
+  if (!isLeaderboardConfigured()) {
+    status.textContent = "Configure o Firebase para carregar o ranking.";
     return;
   }
 
-  startRecordsModalElement.hidden = true;
-  startRecordsOpenButton?.focus?.();
+  try {
+    const entries = await loadLeaderboardCategoryEntries(categoryId);
+    renderRecordTimeRows(tbody, entries);
+  } catch {
+    renderRecordTimeRows(tbody, []);
+    status.textContent = "Ranking indisponivel.";
+  }
+}
+
+function renderRecordTimeRows(tbody, entries) {
+  const rows = [];
+  for (let index = 0; index < leaderboardLimit; index += 1) {
+    const entry = entries[index] || null;
+    const row = document.createElement("tr");
+    const rankCell = document.createElement("td");
+    const nameCell = document.createElement("td");
+    const timeCell = document.createElement("td");
+
+    rankCell.textContent = `#${index + 1}`;
+    nameCell.textContent = entry?.name || "";
+    timeCell.textContent = entry ? formatRunTime(entry.timeMs) : "";
+
+    row.append(rankCell, nameCell, timeCell);
+    rows.push(row);
+  }
+  tbody.replaceChildren(...rows);
 }
 
 function createRunRecordsTable({ records, includeCurrentRun = true, recordResult = null } = {}) {
@@ -7716,7 +8187,11 @@ function createRunRecordsTable({ records, includeCurrentRun = true, recordResult
   const labels = includeCurrentRun ? ["Stage", "Current Run", "Record Time"] : ["Stage", "Record Time"];
   for (const label of labels) {
     const th = document.createElement("th");
-    th.textContent = label;
+    if (includeCurrentRun && label === "Record Time") {
+      th.append(createRecordTimeHeaderButton());
+    } else {
+      th.textContent = label;
+    }
     headRow.append(th);
   }
   thead.append(headRow);
@@ -7744,6 +8219,27 @@ function createRunRecordsTable({ records, includeCurrentRun = true, recordResult
   return table;
 }
 
+function createRecordTimeHeaderButton() {
+  const button = document.createElement("button");
+  button.className = "run-record-time-link";
+  button.type = "button";
+  button.setAttribute("aria-label", "Abrir Record Time");
+
+  const label = document.createElement("span");
+  label.textContent = "Record Time";
+
+  const icon = document.createElement("span");
+  icon.className = "run-record-time-link__icon";
+  icon.textContent = ">";
+  icon.setAttribute("aria-hidden", "true");
+
+  button.append(label, icon);
+  button.addEventListener("click", () => {
+    renderRecordTimeView(leaderboardDefaultCategoryId);
+  });
+  return button;
+}
+
 function createRunSummaryRow({ label, runTime, recordTime, improvedRecord = false, includeCurrentRun = true } = {}) {
   const row = document.createElement("tr");
   const labelCell = document.createElement("td");
@@ -7768,6 +8264,9 @@ function hideRunSummaryModal() {
   if (runSummaryModalElement) {
     runSummaryModalElement.hidden = true;
   }
+  runSummaryViewState = createRunSummaryViewState();
+  setRunSummaryActionsVisible(true);
+  setRunSummaryBackVisible(false);
 }
 
 function formatNullableRunTime(value) {
