@@ -297,6 +297,8 @@ const playerFireInterval = 1;
 const projectileMaxDistance = 80;
 const projectileBodyDamage = 2;
 const projectileHeadDamage = 10;
+const pistolBodyDamageOptions = [4, 5];
+const pistolHeadDamageOptions = [14, 15];
 const shotgunMaxDistance = platformTileSize * 5;
 const shotgunConeBaseRadius = 0.26;
 const shotgunConeRadiusPerTile = 0.34;
@@ -3636,7 +3638,7 @@ function clearPlayerMouseButtons() {
   stopMobileFireLook();
   mobileFireButton?.classList.remove("is-firing");
 
-  if (changed) {
+  if (changed || runtimeIsMobile) {
     syncCrosshair();
   }
 }
@@ -3821,9 +3823,7 @@ function firePlayerSingleProjectile() {
 
   if (enemyHit) {
     getShotImpactNormal(enemyHit, shotImpactNormal);
-    const damage = enemyHit.headshot
-      ? projectileHeadDamage
-      : projectileBodyDamage;
+    const damage = getPistolProjectileDamage(enemyHit.headshot);
     createImpactEffect(enemyHit.point, shotImpactNormal, { hitEnemy: true });
     spawnEnemyDamageNumber(enemyHit.enemy, damage, { headshot: enemyHit.headshot, point: enemyHit.point });
     damageEnemy(enemyHit.enemy, damage, { source: "shot", headshot: enemyHit.headshot });
@@ -3837,6 +3837,11 @@ function firePlayerSingleProjectile() {
   }
 
   return true;
+}
+
+function getPistolProjectileDamage(headshot) {
+  const options = headshot ? pistolHeadDamageOptions : pistolBodyDamageOptions;
+  return options[Math.floor(Math.random() * options.length)];
 }
 
 function firePlayerShotgunProjectile() {
@@ -8508,11 +8513,13 @@ function advanceToNextFloor() {
     startRunFloorTimer(nextFloorIndex);
     playFloorMusic(nextFloorIndex);
     showStageBanner(`FLOOR ${nextFloorIndex + 1}`, { duration: 1.6 });
+    syncCrosshair();
     return;
   }
 
   showStageBanner("FLOOR CLEAR", { duration: 0 });
   stageFlowState.floorComplete = true;
+  syncCrosshair();
   finishRun("complete");
 }
 
