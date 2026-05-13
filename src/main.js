@@ -8080,17 +8080,28 @@ function openStartRecordsModal() {
     return;
   }
 
-  startRecordsBodyElement.replaceChildren(createRunRecordsTable({
-    records: loadRunRecords(),
-    includeCurrentRun: false,
-  }));
+  renderStartRecordsLeaderboard(leaderboardDefaultCategoryId);
   startRecordsModalElement.hidden = false;
   window.requestAnimationFrame(() => {
     startRecordsCloseButton?.focus?.();
   });
 }
 
-function createRecordTimeTabs(activeCategoryId) {
+function renderStartRecordsLeaderboard(categoryId = leaderboardDefaultCategoryId) {
+  if (!startRecordsBodyElement) {
+    return;
+  }
+
+  const category = getLeaderboardCategory(categoryId) || getLeaderboardCategory(leaderboardDefaultCategoryId);
+  const tabs = createRecordTimeTabs(category.id, {
+    onSelect: renderStartRecordsLeaderboard,
+  });
+  const leaderboardTable = createRecordTimeLeaderboardTable(category.id);
+  startRecordsBodyElement.replaceChildren(tabs, leaderboardTable.section);
+  refreshRecordTimeLeaderboardTable(category.id, leaderboardTable.tbody, leaderboardTable.status);
+}
+
+function createRecordTimeTabs(activeCategoryId, { onSelect = renderRecordTimeView } = {}) {
   const tabs = document.createElement("div");
   tabs.className = "record-time-tabs";
   tabs.setAttribute("role", "tablist");
@@ -8106,7 +8117,7 @@ function createRecordTimeTabs(activeCategoryId) {
     button.setAttribute("aria-selected", String(isActive));
     button.textContent = category.label;
     button.addEventListener("click", () => {
-      renderRecordTimeView(category.id);
+      onSelect(category.id);
     });
     tabs.append(button);
   }
