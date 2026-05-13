@@ -7979,10 +7979,15 @@ function renderRunNicknamePrompt(outcome, records = loadRunRecords(), recordResu
     saveLeaderboardPlayerName(nickname);
     runSummaryViewState.nickname = nickname;
 
-    if (outcome === "complete" && isLeaderboardConfigured()) {
-      status.textContent = "Salvando ranking...";
+    if (isLeaderboardConfigured()) {
+      status.textContent = outcome === "complete" ? "Salvando ranking..." : "Carregando ranking...";
       try {
-        await submitRunLeaderboardScores(nickname);
+        if (outcome === "complete") {
+          await submitRunLeaderboardScores(nickname);
+        }
+        const leaderboardSummary = await loadLeaderboardSummaryRecords(nickname);
+        runSummaryViewState.records = leaderboardSummary.records;
+        runSummaryViewState.recordResult = leaderboardSummary.recordResult;
       } catch {
         // The local summary must stay available even when the public ranking fails.
       }
@@ -7999,6 +8004,61 @@ function renderRunNicknamePrompt(outcome, records = loadRunRecords(), recordResu
     input.focus();
     input.select();
   });
+}
+
+async function loadLeaderboardSummaryRecords(nickname) {
+  const records = {
+    floorRecordsMs: Array.from({ length: getRunFloorCount() }, () => null),
+    totalRecordMs: null,
+  };
+  const recordResult = {
+    records,
+    improvedFloorIndexes: new Set(),
+    improvedTotal: false,
+  };
+  const normalizedName = normalizeLeaderboardName(nickname);
+
+  await Promise.all(leaderboardCategories.map(async (category) => {
+    const entries = await loadLeaderboardCategoryEntries(category.id);
+    const firstPlace = entries[0] || null;
+    const firstPlaceTime = normalizeRecordTime(firstPlace?.timeMs);
+
+    if (category.type === "total") {
+      records.totalRecordMs = firstPlaceTime;
+      if (isCurrentRunFirstPlace({
+        firstPlace,
+        currentTimeMs: runTimingState.totalElapsedMs,
+        nickname: normalizedName,
+        completed: runTimingState.finished,
+      })) {
+        recordResult.improvedTotal = true;
+      }
+      return;
+    }
+
+    records.floorRecordsMs[category.floorIndex] = firstPlaceTime;
+    if (isCurrentRunFirstPlace({
+      firstPlace,
+      currentTimeMs: runTimingState.floorTimesMs[category.floorIndex],
+      nickname: normalizedName,
+      completed: runTimingState.floorCompleted[category.floorIndex],
+    })) {
+      recordResult.improvedFloorIndexes.add(category.floorIndex);
+    }
+  }));
+
+  return { records, recordResult };
+}
+
+function isCurrentRunFirstPlace({ firstPlace, currentTimeMs, nickname, completed }) {
+  const normalizedTime = normalizeRecordTime(currentTimeMs);
+  return Boolean(
+    completed
+      && firstPlace
+      && nickname
+      && normalizeLeaderboardName(firstPlace.name) === nickname
+      && normalizeRecordTime(firstPlace.timeMs) === Math.round(normalizedTime),
+  );
 }
 
 function renderRunSummaryFromState() {
