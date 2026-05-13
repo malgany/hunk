@@ -1515,12 +1515,13 @@ body.is-runtime-mobile .corpse-search-button__key {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 5px;
-  width: 100%;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: inherit;
+  gap: 7px;
+  width: auto;
+  border: 1px solid rgb(224 208 133 / 34%);
+  border-radius: 7px;
+  padding: 4px 5px 4px 8px;
+  background: rgb(48 49 38 / 78%);
+  color: #f3efe1;
   cursor: pointer;
   font: inherit;
   font-size: inherit;
@@ -1532,6 +1533,8 @@ body.is-runtime-mobile .corpse-search-button__key {
 
 .run-record-time-link:focus-visible,
 .run-record-time-link:hover {
+  border-color: rgb(224 208 133 / 68%);
+  background: rgb(68 67 48 / 92%);
   color: #ffffff;
   outline: none;
 }
@@ -1542,8 +1545,8 @@ body.is-runtime-mobile .corpse-search-button__key {
   width: 20px;
   height: 20px;
   border: 1px solid rgb(224 208 133 / 38%);
-  border-radius: 6px;
-  background: rgb(18 18 15 / 62%);
+  border-radius: 5px;
+  background: rgb(10 10 8 / 42%);
   color: #f3efe1;
   font-size: 12px;
   font-weight: 900;

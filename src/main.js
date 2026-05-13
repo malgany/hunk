@@ -8271,9 +8271,10 @@ function createRunRecordsTable({ records, includeCurrentRun = true, recordResult
   const tbody = document.createElement("tbody");
   const floorCount = Math.max(getRunFloorCount(), records?.floorRecordsMs?.length || 0);
   for (let index = 0; index < floorCount; index += 1) {
+    const floorCompleted = Boolean(runTimingState.floorCompleted[index]);
     tbody.append(createRunSummaryRow({
       label: `Floor ${index + 1}`,
-      runTime: runTimingState.floorTimesMs[index],
+      runTime: floorCompleted ? runTimingState.floorTimesMs[index] : null,
       recordTime: records?.floorRecordsMs?.[index],
       improvedRecord: recordResult?.improvedFloorIndexes?.has?.(index),
       includeCurrentRun,
@@ -8281,7 +8282,7 @@ function createRunRecordsTable({ records, includeCurrentRun = true, recordResult
   }
   tbody.append(createRunSummaryRow({
     label: "Total Run",
-    runTime: runTimingState.totalElapsedMs,
+    runTime: runTimingState.finished ? runTimingState.totalElapsedMs : null,
     recordTime: records?.totalRecordMs,
     improvedRecord: Boolean(recordResult?.improvedTotal),
     includeCurrentRun,
