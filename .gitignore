@@ -4,6 +4,7 @@ node_modules/
 # Build outputs
 dist/
 build/
+The-Rank-itch.zip
 
 # Local environment
 .env
@@ -29,5 +30,7 @@ coverage/
 .DS_Store
 Thumbs.db
 desktop.ini
+AlbumArtSmall.jpg
+Folder.jpg
 .vscode/
 .idea/

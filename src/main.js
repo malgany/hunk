@@ -151,8 +151,7 @@ const runtimeIsLocal = window.location.protocol === "file:"
   || runtimeHost === "localhost"
   || runtimeHost === "127.0.0.1"
   || runtimeHost === "::1";
-const runtimeIsGithubPages = runtimeHost.endsWith("github.io");
-const runtimeIsStaticHosted = !runtimeIsLocal && runtimeIsGithubPages;
+const runtimeIsStaticHosted = !runtimeIsLocal;
 const gunPackPath = "../assets/Styloo Guns Asset Pack GLTF FBX V1.1/Normal version Color and NormalMap/GLB/";
 const sewerTextureUrls = {
   floor: [
