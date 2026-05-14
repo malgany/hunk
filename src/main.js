@@ -18,6 +18,7 @@ const ammoPickupToastElement = document.querySelector("[data-ammo-pickup-toast]"
 const weaponSlotHudElement = document.querySelector("[data-weapon-slot-hud]");
 const weaponSlotElements = document.querySelectorAll("[data-combat-weapon-slot]");
 const damageFlashElement = document.querySelector("[data-damage-flash]");
+const hitDirectionElement = document.querySelector("[data-hit-direction]");
 const stageBannerElement = document.querySelector("[data-stage-banner]");
 const runTimerElement = document.querySelector("[data-run-timer]");
 const runSummaryModalElement = document.querySelector("[data-run-summary-modal]");
@@ -376,6 +377,28 @@ const enemyMovementSoundRolloff = 1.7;
 const pistolShotSoundVolume = 0.82;
 const shotgunShotSoundVolume = 0.86;
 const ammoReloadSoundVolume = 0.72;
+const juiceSfxVolume = 0.34;
+const lowHealthRatio = 0.3;
+const cameraShakeDecayPower = 1.8;
+const pistolCameraShakeStrength = 0.035;
+const shotgunCameraShakeStrength = 0.085;
+const playerHitCameraShakeStrength = 0.115;
+const bossSpawnCameraShakeStrength = 0.18;
+const stageClearCameraShakeStrength = 0.055;
+const pistolWeaponKickStrength = 0.03;
+const shotgunWeaponKickStrength = 0.075;
+const weaponKickDuration = 0.16;
+const hitDirectionDuration = 0.42;
+const uiPulseDurationMs = 360;
+const enemyMaterialFlashDuration = 0.12;
+const enemyDeathBurstCount = 10;
+const pickupBurstCount = 8;
+const chestOpenBurstCount = 18;
+const shotgunUnlockBurstCount = 18;
+const corpseSearchDustInterval = 0.34;
+const pickupTrailInterval = 0.075;
+const musicJuiceVolumeBoost = 0.16;
+const musicJuiceDamping = 2.8;
 const enemyAttackRange = 1.65;
 const enemyAttackDamage = 6;
 const enemyAttackCooldown = 1.25;
@@ -829,6 +852,7 @@ let floorMusicBuffers = [];
 let floorMusicSound = null;
 let activeFloorMusicIndex = null;
 let floorMusicPausedForOptions = false;
+let musicJuiceIntensity = 0;
 let activeEnemies = [];
 let activeImpactEffects = [];
 let activeMuzzleFlashes = [];
@@ -922,6 +946,20 @@ const wallOcclusionHitSet = new Set();
 const impactEffectPool = [];
 const muzzleFlashPool = [];
 const shotgunTrailParticlePool = [];
+const juiceCameraOffset = new THREE.Vector3();
+const juiceCameraForward = new THREE.Vector3();
+const juiceCameraRight = new THREE.Vector3();
+const juiceCameraUp = new THREE.Vector3();
+const juiceBurstDirection = new THREE.Vector3();
+const juiceBurstRight = new THREE.Vector3();
+const juiceBurstUp = new THREE.Vector3();
+const juiceBurstVelocity = new THREE.Vector3();
+const juiceWorldUp = new THREE.Vector3(0, 1, 0);
+const juiceTempPosition = new THREE.Vector3();
+const juiceTempNormal = new THREE.Vector3(0, 1, 0);
+const hitDirectionVector = new THREE.Vector3();
+const hitDirectionCameraForward = new THREE.Vector3();
+const hitDirectionCameraRight = new THREE.Vector3();
 let mapEditorSyncTimer = 0;
 let mapEditorSyncPending = false;
 let perfOverlayState = null;
@@ -929,6 +967,8 @@ let sceneLoadStarted = false;
 let sceneReady = false;
 let stageFlowState = createStageFlowState();
 let runTimingState = createRunTimingState();
+let screenJuiceState = createScreenJuiceState();
+let weaponKickState = createWeaponKickState();
 
 function clip(id, loop = false, options = {}) {
   return { id, loop, ...options };
@@ -1203,6 +1243,7 @@ function playPistolShotSound() {
   if (sound.isPlaying) {
     sound.stop();
   }
+  sound.setPlaybackRate?.(THREE.MathUtils.lerp(0.96, 1.04, Math.random()));
   sound.play();
 }
 
@@ -1233,6 +1274,7 @@ function playShotgunShotSound() {
   if (sound.isPlaying) {
     sound.stop();
   }
+  sound.setPlaybackRate?.(THREE.MathUtils.lerp(0.94, 1.025, Math.random()));
   sound.play();
 }
 
@@ -1263,6 +1305,7 @@ function playAmmoReloadSound() {
   if (sound.isPlaying) {
     sound.stop();
   }
+  sound.setPlaybackRate?.(THREE.MathUtils.lerp(0.96, 1.05, Math.random()));
   sound.play();
 }
 
@@ -1289,6 +1332,134 @@ function getSfxVolume(baseVolume = 1) {
 
 function getMusicVolume() {
   return optionsMenuState.musicVolume / 100;
+}
+
+function getRuntimeMusicVolume() {
+  return THREE.MathUtils.clamp(getMusicVolume() * (1 + musicJuiceIntensity * musicJuiceVolumeBoost), 0, 1);
+}
+
+function playJuiceSound(type = "tick", volume = 1) {
+  const context = THREE.AudioContext.getContext();
+  if (!context || getSfxVolume() <= 0) {
+    return;
+  }
+
+  unlockGameAudio();
+  const now = context.currentTime;
+  const output = context.createGain();
+  output.gain.setValueAtTime(0.0001, now);
+  output.gain.exponentialRampToValueAtTime(Math.max(0.0001, getSfxVolume(juiceSfxVolume * volume)), now + 0.015);
+  output.gain.exponentialRampToValueAtTime(0.0001, now + getJuiceSoundDuration(type));
+  output.connect(context.destination);
+
+  if (type === "dust" || type === "impact") {
+    playNoiseBurst(context, output, type, now);
+    return;
+  }
+
+  const oscillator = context.createOscillator();
+  const filter = context.createBiquadFilter();
+  oscillator.type = getJuiceSoundWave(type);
+  oscillator.frequency.setValueAtTime(getJuiceSoundStartFrequency(type), now);
+  oscillator.frequency.exponentialRampToValueAtTime(getJuiceSoundEndFrequency(type), now + getJuiceSoundDuration(type));
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(getJuiceSoundFilterFrequency(type), now);
+  oscillator.connect(filter);
+  filter.connect(output);
+  oscillator.start(now);
+  oscillator.stop(now + getJuiceSoundDuration(type) + 0.02);
+}
+
+function playNoiseBurst(context, output, type, now) {
+  const duration = getJuiceSoundDuration(type);
+  const sampleCount = Math.max(1, Math.floor(context.sampleRate * duration));
+  const buffer = context.createBuffer(1, sampleCount, context.sampleRate);
+  const samples = buffer.getChannelData(0);
+  for (let index = 0; index < sampleCount; index += 1) {
+    const fade = 1 - (index / sampleCount);
+    samples[index] = (Math.random() * 2 - 1) * fade * fade;
+  }
+
+  const source = context.createBufferSource();
+  const filter = context.createBiquadFilter();
+  filter.type = type === "impact" ? "bandpass" : "lowpass";
+  filter.frequency.setValueAtTime(type === "impact" ? 1500 : 620, now);
+  source.buffer = buffer;
+  source.connect(filter);
+  filter.connect(output);
+  source.start(now);
+  source.stop(now + duration + 0.02);
+}
+
+function getJuiceSoundDuration(type) {
+  switch (type) {
+    case "headshot":
+      return 0.13;
+    case "alert":
+      return 0.18;
+    case "unlock":
+      return 0.34;
+    case "clear":
+      return 0.42;
+    case "dry":
+      return 0.055;
+    case "dust":
+      return 0.16;
+    case "impact":
+      return 0.085;
+    default:
+      return 0.16;
+  }
+}
+
+function getJuiceSoundWave(type) {
+  return type === "clear" || type === "unlock" ? "triangle" : "square";
+}
+
+function getJuiceSoundStartFrequency(type) {
+  switch (type) {
+    case "headshot":
+      return 980;
+    case "alert":
+      return 220;
+    case "unlock":
+      return 440;
+    case "clear":
+      return 520;
+    case "dry":
+      return 180;
+    default:
+      return 320;
+  }
+}
+
+function getJuiceSoundEndFrequency(type) {
+  switch (type) {
+    case "headshot":
+      return 1560;
+    case "alert":
+      return 110;
+    case "unlock":
+      return 880;
+    case "clear":
+      return 1040;
+    case "dry":
+      return 90;
+    default:
+      return 220;
+  }
+}
+
+function getJuiceSoundFilterFrequency(type) {
+  switch (type) {
+    case "unlock":
+    case "clear":
+      return 1800;
+    case "headshot":
+      return 2400;
+    default:
+      return 1200;
+  }
 }
 
 function applyAudioOptionVolumes() {
@@ -1323,7 +1494,7 @@ function applyMusicOptionVolume() {
   }
 
   if (floorMusicSound) {
-    floorMusicSound.setVolume(volume);
+    floorMusicSound.setVolume(getRuntimeMusicVolume());
   }
 }
 
@@ -1359,7 +1530,7 @@ function playFloorMusic(floorIndex = 0) {
     activeFloorMusicIndex = musicIndex;
   }
 
-  music.setVolume(getMusicVolume());
+  music.setVolume(getRuntimeMusicVolume());
   if (!music.isPlaying) {
     music.play();
   }
@@ -1373,7 +1544,7 @@ function ensureFloorMusicSound() {
   floorMusicSound = new THREE.Audio(audioListener);
   floorMusicSound.name = "FloorMusic";
   floorMusicSound.setLoop(true);
-  floorMusicSound.setVolume(getMusicVolume());
+  floorMusicSound.setVolume(getRuntimeMusicVolume());
   return floorMusicSound;
 }
 
@@ -1381,6 +1552,7 @@ function stopFloorMusic() {
   if (floorMusicSound?.isPlaying) {
     floorMusicSound.stop();
   }
+  musicJuiceIntensity = 0;
   floorMusicPausedForOptions = false;
 }
 
@@ -1406,7 +1578,7 @@ function resumeFloorMusicAfterOptions() {
   }
 
   if (shouldResume && floorMusicSound && !floorMusicSound.isPlaying) {
-    floorMusicSound.setVolume(getMusicVolume());
+    floorMusicSound.setVolume(getRuntimeMusicVolume());
     floorMusicSound.play();
     return;
   }
@@ -1414,6 +1586,43 @@ function resumeFloorMusicAfterOptions() {
   if (!floorMusicSound?.isPlaying) {
     playFloorMusicForCurrentFloor();
   }
+}
+
+function updateDynamicMusicJuice(delta) {
+  const target = getDynamicMusicJuiceTarget();
+  musicJuiceIntensity = THREE.MathUtils.damp(
+    musicJuiceIntensity,
+    target,
+    musicJuiceDamping,
+    delta,
+  );
+
+  if (floorMusicSound?.isPlaying) {
+    floorMusicSound.setVolume(getRuntimeMusicVolume());
+  }
+}
+
+function getDynamicMusicJuiceTarget() {
+  if (playerControlState.dead || !isRunMusicAllowed()) {
+    return 0;
+  }
+
+  let target = 0;
+  for (const enemy of activeEnemies) {
+    if (!enemy.active || !enemy.spawned || enemy.model?.visible === false) {
+      continue;
+    }
+
+    if (enemy.type === "boss") {
+      target = Math.max(target, 1);
+    } else if (enemy.state === "attacking" || enemy.state === "chasing") {
+      target = Math.max(target, 0.72);
+    } else if (enemy.alerted) {
+      target = Math.max(target, 0.42);
+    }
+  }
+
+  return target;
 }
 
 function getFloorMusicIndex(floorIndex) {
@@ -1508,6 +1717,7 @@ renderer.setAnimationLoop((timestamp) => {
     updateCorpseSearchPrompt();
     updateFloorLoot(delta);
     updateStageFlow(delta);
+    updateDynamicMusicJuice(delta);
     updateRunTimer();
   }
   updateDeferredMapEditorSync(delta);
@@ -1519,9 +1729,17 @@ renderer.setAnimationLoop((timestamp) => {
   }
 
   updatePlayerCameraFade(delta);
+  updateWeaponJuice(delta);
   updateCollisionDebug();
   updateWallOcclusion();
+  updateScreenJuice(delta);
+  if (juiceCameraOffset.lengthSq() > 0) {
+    camera.position.add(juiceCameraOffset);
+  }
   renderer.render(scene, camera);
+  if (juiceCameraOffset.lengthSq() > 0) {
+    camera.position.sub(juiceCameraOffset);
+  }
   updatePerfOverlay(delta, timestamp);
 });
 
@@ -1645,7 +1863,7 @@ async function loadScene() {
     fitModelToPlatform(characterModel);
     positionCharacterOnMap(mapEditorState.appliedPlayerPosition, mapEditorState.appliedPlayerDirection);
     heldSlot = findObjectByName(characterModel, activeWeapon.slotName);
-    await equipWeapon(activeWeapon.id);
+    await equipWeapon(activeWeapon.id, { juice: false });
     enemySourceModel = minionGltf.scene;
     prepareStaticModel(enemySourceModel);
     fitEnemyModelToTile(enemySourceModel);
@@ -1700,7 +1918,7 @@ function loadGltf(url) {
   });
 }
 
-async function equipWeapon(weaponId) {
+async function equipWeapon(weaponId, { juice = true } = {}) {
   const nextWeapon = weaponById.get(weaponId) || weaponOptions[0];
   const requestId = ++equipRequestId;
   if (combatWeaponConfigById.has(nextWeapon.id)) {
@@ -1712,6 +1930,11 @@ async function equipWeapon(weaponId) {
   syncWeaponSlotHud();
   syncPlayerAmmoHud();
   syncCrosshair();
+  if (juice) {
+    pulseWeaponSlot(nextWeapon.id);
+    pulseElement(weaponSlotHudElement, "is-juiced");
+    playJuiceSound("tick", 0.26);
+  }
 
   if (!heldSlot) {
     setWeaponStatus(`Slot ${nextWeapon.slotName} nao encontrado`);
@@ -2346,6 +2569,10 @@ async function exitRunToStart() {
   clearManualMovementPreview();
   hideRunSummaryModal();
   hideStageBanner();
+  phoneShellElement?.classList.remove("is-player-hit", "is-player-dead", "is-run-complete", "is-low-health");
+  hitDirectionElement?.classList.remove("is-visible");
+  screenJuiceState = createScreenJuiceState();
+  weaponKickState = createWeaponKickState();
   runTimingState = createRunTimingState();
   syncRunTimerHud();
   if (runtimeIsMobile && document.fullscreenElement && document.exitFullscreen) {
@@ -2369,9 +2596,13 @@ async function startGameplayRun() {
   hideStageBanner();
   clearPlayerMouseButtons();
   phoneShellElement?.classList.remove("is-player-hit");
+  phoneShellElement?.classList.remove("is-player-dead", "is-run-complete", "is-low-health");
+  hitDirectionElement?.classList.remove("is-visible");
   cancelGameplayCameraIntro();
   cancelGameplayCameraOutro();
   playerControlState = createPlayerControlState();
+  screenJuiceState = createScreenJuiceState();
+  weaponKickState = createWeaponKickState();
   runTimingState = createRunTimingState();
   resetCorpseSearchState();
   clearManualMovementPreview();
@@ -2379,7 +2610,7 @@ async function startGameplayRun() {
 
   const firstFloor = mapEditorState.floors[0] || createDefaultMapFloorConfig();
   loadMapFloorIntoEditor(firstFloor, 0);
-  await equipWeapon(defaultWeaponId);
+  await equipWeapon(defaultWeaponId, { juice: false });
   playMovement(defaultMovementId, { restart: true });
   syncPlayerHealthHud();
   syncPlayerAmmoHud();
@@ -2745,12 +2976,31 @@ function createPlayerControlState() {
   };
 }
 
+function createScreenJuiceState() {
+  return {
+    cameraShakeTimer: 0,
+    cameraShakeDuration: 0,
+    cameraShakeStrength: 0,
+    hitDirectionTimer: 0,
+  };
+}
+
+function createWeaponKickState() {
+  return {
+    timer: 0,
+    duration: weaponKickDuration,
+    strength: 0,
+    active: false,
+  };
+}
+
 function createCorpseSearchState() {
   return {
     active: false,
     enemy: null,
     timer: 0,
     animationTimer: 0,
+    dustTimer: 0,
     promptEnemy: null,
   };
 }
@@ -3776,6 +4026,7 @@ function firePreparedPlayerWeapon() {
     playerControlState.fireCooldown = playerFireInterval;
     playerControlState.shotAnimationTimer = playerShotAnimationDuration * 0.55;
     syncPlayerAmmoHud();
+    triggerDryFireJuice();
     return false;
   }
 
@@ -3790,6 +4041,7 @@ function firePreparedPlayerWeapon() {
   }
   setCombatWeaponAmmo(weaponId, getCombatWeaponAmmo(weaponId) - 1);
   syncPlayerAmmoHud();
+  triggerShotJuice(weaponId);
   recordProjectileShotPerf(shotStartTime);
   playerControlState.shotAnimationTimer = playerShotAnimationDuration;
   playerControlState.fireCooldown = playerFireInterval;
@@ -3825,6 +4077,7 @@ function firePlayerSingleProjectile() {
     getShotImpactNormal(enemyHit, shotImpactNormal);
     const damage = getPistolProjectileDamage(enemyHit.headshot);
     createImpactEffect(enemyHit.point, shotImpactNormal, { hitEnemy: true });
+    createEnemyImpactJuice(enemyHit.point, shotImpactNormal, { headshot: enemyHit.headshot });
     spawnEnemyDamageNumber(enemyHit.enemy, damage, { headshot: enemyHit.headshot, point: enemyHit.point });
     damageEnemy(enemyHit.enemy, damage, { source: "shot", headshot: enemyHit.headshot });
     return true;
@@ -3834,6 +4087,7 @@ function firePlayerSingleProjectile() {
     const wallHit = wallHits[0];
     getShotImpactNormal(wallHit, shotImpactNormal);
     createImpactEffect(wallHit.point, shotImpactNormal, { hitEnemy: false });
+    createWallImpactJuice(wallHit.point, shotImpactNormal);
   }
 
   return true;
@@ -3864,6 +4118,7 @@ function firePlayerShotgunProjectile() {
     for (const enemyHit of enemyHits) {
       const damage = getShotgunDamage(enemyHit.distance, enemyHit.headshot);
       createImpactEffect(enemyHit.point, enemyHit.normal, { hitEnemy: true });
+      createEnemyImpactJuice(enemyHit.point, enemyHit.normal, { headshot: enemyHit.headshot });
       spawnEnemyDamageNumber(enemyHit.enemy, damage, { headshot: enemyHit.headshot, point: enemyHit.point });
       damageEnemy(enemyHit.enemy, damage, { source: "shot", headshot: enemyHit.headshot });
     }
@@ -3874,6 +4129,7 @@ function firePlayerShotgunProjectile() {
     const wallHit = wallHits[0];
     getShotImpactNormal(wallHit, shotImpactNormal);
     createImpactEffect(wallHit.point, shotImpactNormal, { hitEnemy: false });
+    createWallImpactJuice(wallHit.point, shotImpactNormal);
   }
 
   return true;
@@ -4154,6 +4410,7 @@ function releaseImpactEffect(effect) {
     effect.light.intensity = 0;
   }
   effect.age = 0;
+  effect.velocity.set(0, 0, 0);
   impactEffectPool.push(effect);
 }
 
@@ -4174,9 +4431,13 @@ function createImpactEffectEntry() {
   return {
     mesh,
     light,
+    velocity: new THREE.Vector3(),
     age: 0,
     duration: impactEffectDuration,
     baseScale: 1,
+    baseOpacity: 0.92,
+    growth: 2.8,
+    lightIntensity: impactLightIntensity,
   };
 }
 
@@ -4246,27 +4507,48 @@ function createShotgunTrailParticleEntry() {
   };
 }
 
-function createImpactEffect(point, normal, { hitEnemy = false } = {}) {
+function createImpactEffect(
+  point,
+  normal,
+  {
+    hitEnemy = false,
+    color: requestedColor = null,
+    scale: requestedScale = null,
+    duration = impactEffectDuration,
+    opacity = 0.92,
+    growth = 2.8,
+    velocity = null,
+    lightIntensity = impactLightIntensity,
+  } = {},
+) {
   const effect = acquireImpactEffect();
   const { mesh, light } = effect;
-  const scale = hitEnemy ? 1.35 : 1;
-  const color = hitEnemy ? 0xffd0a8 : 0xfff1c1;
+  const scale = requestedScale ?? (hitEnemy ? 1.35 : 1);
+  const color = requestedColor ?? (hitEnemy ? 0xffd0a8 : 0xfff1c1);
 
   mesh.name = hitEnemy ? "EnemyImpact" : "WorldImpact";
   mesh.position.copy(point).addScaledVector(normal, 0.04);
   mesh.scale.setScalar(scale);
   mesh.material.color.setHex(color);
-  mesh.material.opacity = 0.92;
+  mesh.material.opacity = opacity;
   mesh.visible = true;
   if (light) {
     light.color.setHex(color);
     light.position.copy(mesh.position).addScaledVector(normal, 0.04);
-    light.intensity = impactLightIntensity;
+    light.intensity = lightIntensity;
     light.visible = true;
   }
   effect.age = 0;
-  effect.duration = impactEffectDuration;
+  effect.duration = duration;
   effect.baseScale = scale;
+  effect.baseOpacity = opacity;
+  effect.growth = growth;
+  effect.lightIntensity = lightIntensity;
+  if (velocity) {
+    effect.velocity.copy(velocity);
+  } else {
+    effect.velocity.set(0, 0, 0);
+  }
   activeImpactEffects.push(effect);
 }
 
@@ -4279,20 +4561,25 @@ function createMuzzleFlash(direction) {
 
   const flash = acquireMuzzleFlash();
   const { mesh, light } = flash;
+  const isShotgun = getActiveCombatWeaponId() === shotgunCombatWeaponId;
+  const scale = isShotgun ? 1.95 : 1.16;
+  const color = isShotgun ? 0xffbd75 : 0xfff1c1;
 
   mesh.name = "WeaponMuzzleFlash";
   mesh.position.copy(muzzleFlashPosition);
-  mesh.scale.setScalar(1.25);
+  mesh.scale.setScalar(scale);
+  mesh.material.color.setHex(color);
   mesh.material.opacity = 0.96;
   mesh.visible = true;
   if (light) {
+    light.color.setHex(color);
     light.position.copy(muzzleFlashPosition);
-    light.intensity = muzzleFlashLightIntensity;
+    light.intensity = muzzleFlashLightIntensity * (isShotgun ? 1.35 : 1);
     light.visible = true;
   }
   flash.age = 0;
-  flash.duration = muzzleFlashDuration;
-  flash.baseScale = 1.25;
+  flash.duration = muzzleFlashDuration * (isShotgun ? 1.28 : 0.86);
+  flash.baseScale = scale;
   activeMuzzleFlashes.push(flash);
 }
 
@@ -4390,6 +4677,419 @@ function getMuzzleFlashPosition(direction, target) {
   return target.copy(camera.position).addScaledVector(direction, 0.85);
 }
 
+function triggerShotJuice(weaponId) {
+  const isShotgun = weaponId === shotgunCombatWeaponId;
+  triggerCameraShake(
+    isShotgun ? shotgunCameraShakeStrength : pistolCameraShakeStrength,
+    isShotgun ? 0.2 : 0.12,
+  );
+  triggerWeaponKick(
+    isShotgun ? shotgunWeaponKickStrength : pistolWeaponKickStrength,
+    isShotgun ? 0.22 : weaponKickDuration,
+  );
+  pulseElement(crosshairElement, "is-juiced", 150);
+  if (isShotgun) {
+    createShotgunSmoke(muzzleFlashPosition, projectileDirection);
+  }
+}
+
+function triggerDryFireJuice() {
+  playJuiceSound("dry", 0.42);
+  pulseElement(ammoHudElement, "is-juiced");
+  triggerCameraShake(0.012, 0.08);
+}
+
+function triggerCameraShake(strength, duration) {
+  screenJuiceState.cameraShakeStrength = Math.max(screenJuiceState.cameraShakeStrength, strength);
+  screenJuiceState.cameraShakeDuration = Math.max(screenJuiceState.cameraShakeDuration, duration);
+  screenJuiceState.cameraShakeTimer = Math.max(screenJuiceState.cameraShakeTimer, duration);
+}
+
+function updateScreenJuice(delta) {
+  juiceCameraOffset.set(0, 0, 0);
+
+  if (screenJuiceState.hitDirectionTimer > 0) {
+    screenJuiceState.hitDirectionTimer = Math.max(0, screenJuiceState.hitDirectionTimer - delta);
+    if (screenJuiceState.hitDirectionTimer <= 0) {
+      hitDirectionElement?.classList.remove("is-visible");
+    }
+  }
+
+  if (screenJuiceState.cameraShakeTimer <= 0) {
+    return;
+  }
+
+  screenJuiceState.cameraShakeTimer = Math.max(0, screenJuiceState.cameraShakeTimer - delta);
+  const duration = Math.max(screenJuiceState.cameraShakeDuration, 0.001);
+  const ratio = THREE.MathUtils.clamp(screenJuiceState.cameraShakeTimer / duration, 0, 1);
+  const strength = screenJuiceState.cameraShakeStrength * (ratio ** cameraShakeDecayPower);
+  if (strength <= 0.0001) {
+    return;
+  }
+
+  camera.getWorldDirection(juiceCameraForward);
+  juiceCameraRight.crossVectors(camera.up, juiceCameraForward);
+  if (juiceCameraRight.lengthSq() <= 0.0001) {
+    juiceCameraRight.set(1, 0, 0);
+  } else {
+    juiceCameraRight.normalize();
+  }
+  juiceCameraUp.crossVectors(juiceCameraForward, juiceCameraRight).normalize();
+  juiceCameraOffset
+    .addScaledVector(juiceCameraRight, (Math.random() * 2 - 1) * strength)
+    .addScaledVector(juiceCameraUp, (Math.random() * 2 - 1) * strength * 0.65);
+
+  if (screenJuiceState.cameraShakeTimer <= 0) {
+    screenJuiceState.cameraShakeDuration = 0;
+    screenJuiceState.cameraShakeStrength = 0;
+  }
+}
+
+function triggerWeaponKick(strength, duration = weaponKickDuration) {
+  weaponKickState.timer = Math.max(weaponKickState.timer, duration);
+  weaponKickState.duration = Math.max(duration, 0.001);
+  weaponKickState.strength = Math.max(weaponKickState.strength, strength);
+  weaponKickState.active = true;
+}
+
+function updateWeaponJuice(delta) {
+  if (!currentHeldItem || !activeWeapon || !weaponKickState.active) {
+    return;
+  }
+
+  if (weaponKickState.timer <= 0) {
+    weaponKickState.active = false;
+    weaponKickState.strength = 0;
+    applyWeaponTransform();
+    return;
+  }
+
+  weaponKickState.timer = Math.max(0, weaponKickState.timer - delta);
+  const progress = 1 - THREE.MathUtils.clamp(weaponKickState.timer / weaponKickState.duration, 0, 1);
+  const recoil = Math.sin(progress * Math.PI) * weaponKickState.strength;
+  currentHeldItem.position.fromArray(activeWeapon.position);
+  currentHeldItem.rotation.fromArray(activeWeapon.rotation);
+  currentHeldItem.position.z -= recoil;
+  currentHeldItem.position.y += recoil * 0.22;
+  currentHeldItem.rotation.x += recoil * 1.2;
+
+  if (weaponKickState.timer <= 0) {
+    weaponKickState.active = false;
+    weaponKickState.strength = 0;
+    applyWeaponTransform();
+  }
+}
+
+function createShotgunSmoke(point, direction) {
+  createDirectionalBurst(point, direction, {
+    count: runtimeIsMobile ? 6 : 11,
+    color: 0xb8b09a,
+    scale: 1.7,
+    duration: 0.34,
+    opacity: 0.24,
+    growth: 2.2,
+    power: 1.15,
+    spread: 1.4,
+    lightIntensity: 0,
+  });
+}
+
+function createWallImpactJuice(point, normal) {
+  createDirectionalBurst(point, normal, {
+    count: runtimeIsMobile ? 3 : 6,
+    color: 0xffd98a,
+    scale: 0.72,
+    duration: 0.18,
+    opacity: 0.82,
+    growth: 1.8,
+    power: 2.1,
+    spread: 1.7,
+    lightIntensity: 0,
+  });
+  playJuiceSound("impact", 0.38);
+}
+
+function createEnemyImpactJuice(point, normal, { headshot = false } = {}) {
+  createDirectionalBurst(point, normal, {
+    count: headshot ? (runtimeIsMobile ? 6 : 12) : (runtimeIsMobile ? 3 : 7),
+    color: headshot ? 0xff3434 : 0xffd84d,
+    scale: headshot ? 0.92 : 0.68,
+    duration: headshot ? 0.24 : 0.18,
+    opacity: 0.86,
+    growth: headshot ? 2.2 : 1.7,
+    power: headshot ? 2.8 : 1.8,
+    spread: headshot ? 2.2 : 1.4,
+    lightIntensity: 0,
+  });
+
+  if (headshot) {
+    playJuiceSound("headshot", 0.72);
+    triggerCameraShake(0.045, 0.1);
+    pulseElement(crosshairElement, "is-headshot", 180);
+  }
+}
+
+function createEnemyDeathJuice(enemy) {
+  if (!enemy?.model) {
+    return;
+  }
+
+  juiceTempPosition.set(
+    enemy.model.position.x,
+    enemy.model.position.y + Math.max(enemy.hitbox?.maxY ?? 2.2, 2.2) * 0.35,
+    enemy.model.position.z,
+  );
+  createDirectionalBurst(juiceTempPosition, juiceWorldUp, {
+    count: enemy.type === "boss" ? enemyDeathBurstCount * 2 : enemyDeathBurstCount,
+    color: enemy.type === "boss" ? 0xffd15d : 0xc6baa0,
+    scale: enemy.type === "boss" ? 1.28 : 0.82,
+    duration: enemy.type === "boss" ? 0.42 : 0.28,
+    opacity: 0.58,
+    growth: 2.4,
+    power: enemy.type === "boss" ? 2.5 : 1.45,
+    spread: enemy.type === "boss" ? 2.6 : 1.6,
+    lightIntensity: 0,
+  });
+  playJuiceSound("dust", enemy.type === "boss" ? 0.74 : 0.42);
+}
+
+function createPickupBurst(position, weaponId) {
+  createDirectionalBurst(position, juiceWorldUp, {
+    count: pickupBurstCount,
+    color: getWeaponJuiceColor(weaponId),
+    scale: 0.72,
+    duration: 0.28,
+    opacity: 0.7,
+    growth: 2.1,
+    power: 1.7,
+    spread: 1.8,
+    lightIntensity: 0,
+  });
+}
+
+function createPickupTrail(position, weaponId) {
+  createImpactEffect(position, juiceWorldUp, {
+    color: getWeaponJuiceColor(weaponId),
+    scale: 0.38,
+    duration: 0.18,
+    opacity: 0.36,
+    growth: 1.4,
+    lightIntensity: 0,
+  });
+}
+
+function createChestOpenJuice(chest) {
+  if (!chest?.group) {
+    return;
+  }
+
+  juiceTempPosition.copy(chest.group.position);
+  juiceTempPosition.y += 0.88;
+  createDirectionalBurst(juiceTempPosition, juiceWorldUp, {
+    count: chestOpenBurstCount,
+    color: 0xe8c66a,
+    scale: 0.9,
+    duration: 0.44,
+    opacity: 0.72,
+    growth: 2.5,
+    power: 1.5,
+    spread: 2.2,
+    lightIntensity: impactLightIntensity * 0.45,
+  });
+  playJuiceSound("unlock", 0.42);
+}
+
+function createShotgunUnlockJuice(position) {
+  createDirectionalBurst(position, juiceWorldUp, {
+    count: shotgunUnlockBurstCount,
+    color: getWeaponJuiceColor(shotgunCombatWeaponId),
+    scale: 1.02,
+    duration: 0.5,
+    opacity: 0.82,
+    growth: 2.8,
+    power: 2.1,
+    spread: 2.6,
+    lightIntensity: impactLightIntensity * 0.5,
+  });
+  playJuiceSound("unlock", 0.82);
+  triggerCameraShake(0.065, 0.2);
+}
+
+function createCorpseSearchDust(enemy) {
+  if (!enemy?.model) {
+    return;
+  }
+
+  juiceTempPosition.copy(enemy.model.position);
+  juiceTempPosition.y += 0.35;
+  createDirectionalBurst(juiceTempPosition, juiceWorldUp, {
+    count: runtimeIsMobile ? 2 : 4,
+    color: 0x8f846f,
+    scale: 0.55,
+    duration: 0.32,
+    opacity: 0.32,
+    growth: 2,
+    power: 0.75,
+    spread: 1.25,
+    lightIntensity: 0,
+  });
+}
+
+function createEnemyAlertJuice(enemy) {
+  if (!enemy?.model?.visible) {
+    return;
+  }
+
+  getEnemyEyePosition(enemy, juiceTempPosition);
+  createDirectionalBurst(juiceTempPosition, juiceWorldUp, {
+    count: enemy.type === "boss" ? 10 : 5,
+    color: enemy.type === "boss" ? 0xffd15d : 0xff3b30,
+    scale: enemy.type === "boss" ? 1.1 : 0.72,
+    duration: 0.25,
+    opacity: 0.7,
+    growth: 1.7,
+    power: 1.25,
+    spread: 1.5,
+    lightIntensity: 0,
+  });
+  playJuiceSound("alert", enemy.type === "boss" ? 0.72 : 0.42);
+}
+
+function createBossSpawnJuice(enemy) {
+  if (!enemy?.model) {
+    return;
+  }
+
+  juiceTempPosition.copy(enemy.model.position);
+  juiceTempPosition.y += 0.6;
+  createDirectionalBurst(juiceTempPosition, juiceWorldUp, {
+    count: runtimeIsMobile ? 14 : 26,
+    color: 0xffd15d,
+    scale: 1.45,
+    duration: 0.62,
+    opacity: 0.72,
+    growth: 2.8,
+    power: 2.8,
+    spread: 3.2,
+    lightIntensity: impactLightIntensity * 0.7,
+  });
+  triggerCameraShake(bossSpawnCameraShakeStrength, 0.42);
+  playJuiceSound("alert", 1);
+}
+
+function createStageClearJuice() {
+  pulseElement(stageBannerElement, "is-juiced", 520);
+  triggerCameraShake(stageClearCameraShakeStrength, 0.22);
+  playJuiceSound("clear", 0.72);
+}
+
+function createDirectionalBurst(
+  point,
+  normal,
+  {
+    count,
+    color,
+    scale,
+    duration,
+    opacity,
+    growth,
+    power,
+    spread,
+    lightIntensity,
+  },
+) {
+  juiceBurstDirection.copy(normal);
+  if (juiceBurstDirection.lengthSq() <= 0.0001) {
+    juiceBurstDirection.copy(juiceWorldUp);
+  } else {
+    juiceBurstDirection.normalize();
+  }
+
+  juiceBurstRight.crossVectors(juiceBurstDirection, juiceWorldUp);
+  if (juiceBurstRight.lengthSq() <= 0.0001) {
+    juiceBurstRight.set(1, 0, 0);
+  } else {
+    juiceBurstRight.normalize();
+  }
+  juiceBurstUp.crossVectors(juiceBurstRight, juiceBurstDirection).normalize();
+
+  for (let index = 0; index < count; index += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const radial = Math.sqrt(Math.random()) * spread;
+    juiceBurstVelocity
+      .copy(juiceBurstDirection)
+      .multiplyScalar(power * (0.45 + Math.random() * 0.75))
+      .addScaledVector(juiceBurstRight, Math.cos(angle) * radial)
+      .addScaledVector(juiceBurstUp, Math.sin(angle) * radial);
+
+    createImpactEffect(point, juiceBurstDirection, {
+      color,
+      scale: scale * (0.65 + Math.random() * 0.7),
+      duration: duration * (0.75 + Math.random() * 0.45),
+      opacity,
+      growth,
+      velocity: juiceBurstVelocity,
+      lightIntensity,
+    });
+  }
+}
+
+function getWeaponJuiceColor(weaponId) {
+  return weaponId === shotgunCombatWeaponId ? 0x72f0a2 : 0xff5d4e;
+}
+
+function pulseElement(element, className = "is-juiced", duration = uiPulseDurationMs) {
+  if (!element) {
+    return;
+  }
+
+  element.classList.remove(className);
+  void element.offsetWidth;
+  element.classList.add(className);
+  window.setTimeout(() => {
+    element.classList.remove(className);
+  }, duration);
+}
+
+function pulseWeaponSlot(weaponId, className = "is-juiced") {
+  for (const element of weaponSlotElements) {
+    if (element.dataset.combatWeaponSlot === weaponId) {
+      pulseElement(element, className);
+    }
+  }
+}
+
+function showHitDirection(sourceEnemy) {
+  if (!hitDirectionElement || !characterModel || !sourceEnemy?.model) {
+    return;
+  }
+
+  hitDirectionVector.set(
+    sourceEnemy.model.position.x - characterModel.position.x,
+    0,
+    sourceEnemy.model.position.z - characterModel.position.z,
+  );
+  if (hitDirectionVector.lengthSq() <= 0.0001) {
+    return;
+  }
+  hitDirectionVector.normalize();
+  camera.getWorldDirection(hitDirectionCameraForward);
+  hitDirectionCameraForward.y = 0;
+  if (hitDirectionCameraForward.lengthSq() <= 0.0001) {
+    hitDirectionCameraForward.set(0, 0, 1);
+  } else {
+    hitDirectionCameraForward.normalize();
+  }
+  hitDirectionCameraRight.crossVectors(camera.up, hitDirectionCameraForward).normalize();
+
+  const x = hitDirectionVector.dot(hitDirectionCameraRight);
+  const y = hitDirectionVector.dot(hitDirectionCameraForward);
+  const degrees = THREE.MathUtils.radToDeg(Math.atan2(x, y));
+  hitDirectionElement.style.setProperty("--hit-direction-rotation", `${degrees}deg`);
+  hitDirectionElement.classList.add("is-visible");
+  screenJuiceState.hitDirectionTimer = hitDirectionDuration;
+}
+
 function updateImpactEffects(delta) {
   if (!activeImpactEffects.length) {
     updateMuzzleFlashes(delta);
@@ -4403,10 +5103,12 @@ function updateImpactEffects(delta) {
     const progress = THREE.MathUtils.clamp(effect.age / effect.duration, 0, 1);
     const fade = 1 - progress;
 
-    effect.mesh.scale.setScalar(effect.baseScale * (1 + progress * 2.8));
-    effect.mesh.material.opacity = 0.92 * fade;
+    effect.mesh.position.addScaledVector(effect.velocity, delta);
+    effect.mesh.scale.setScalar(effect.baseScale * (1 + progress * effect.growth));
+    effect.mesh.material.opacity = effect.baseOpacity * fade;
     if (effect.light) {
-      effect.light.intensity = impactLightIntensity * fade;
+      effect.light.position.copy(effect.mesh.position);
+      effect.light.intensity = effect.lightIntensity * fade;
     }
 
     if (progress >= 1) {
@@ -4537,6 +5239,7 @@ function spawnAmmoPickup(position, weaponId = getActiveCombatWeaponId()) {
     weaponId: config.id,
     amount: ammoPickupAmount,
     age: 0,
+    sparkTimer: 0,
   });
 }
 
@@ -4550,6 +5253,8 @@ function updateAmmoPickups(delta) {
     pickup.age += delta;
     pickup.group.rotation.y += delta * 1.4;
     pickup.group.position.y = (ammoPickupBoxHeight / 2) + Math.sin(pickup.age * 4.8) * 0.025;
+    pickup.group.scale.setScalar(1 + Math.sin(pickup.age * 5.6) * 0.035);
+    pickup.sparkTimer = Math.max(0, pickup.sparkTimer - delta);
 
     ammoPickupPosition.copy(pickup.group.position);
     let distanceSq = (
@@ -4561,6 +5266,10 @@ function updateAmmoPickups(delta) {
       const pull = 1 - Math.exp(-ammoPickupMagnetSpeed * delta);
       pickup.group.position.x += (characterModel.position.x - pickup.group.position.x) * pull;
       pickup.group.position.z += (characterModel.position.z - pickup.group.position.z) * pull;
+      if (pickup.sparkTimer <= 0) {
+        createPickupTrail(pickup.group.position, pickup.weaponId);
+        pickup.sparkTimer = pickupTrailInterval;
+      }
       ammoPickupPosition.copy(pickup.group.position);
       distanceSq = (
         ((characterModel.position.x - ammoPickupPosition.x) ** 2)
@@ -4578,9 +5287,10 @@ function updateAmmoPickups(delta) {
 }
 
 function collectAmmoPickup(pickup) {
+  createPickupBurst(pickup.group.position, pickup.weaponId);
   addCombatWeaponAmmo(pickup.weaponId, pickup.amount);
   syncPlayerAmmoHud();
-  showAmmoPickupToast(pickup.amount);
+  showAmmoPickupToast(pickup.amount, pickup.weaponId);
   pickup.group.removeFromParent();
 }
 
@@ -4591,13 +5301,15 @@ function clearAmmoPickups() {
   activeAmmoPickups = [];
 }
 
-function showAmmoPickupToast(amount) {
+function showAmmoPickupToast(amount, weaponId = getActiveCombatWeaponId()) {
   if (!ammoPickupToastElement) {
     return;
   }
 
   ammoPickupToastElement.textContent = `+${amount}`;
   ammoPickupToastElement.hidden = false;
+  ammoPickupToastElement.classList.toggle("is-weapon-shotgun", weaponId === shotgunCombatWeaponId);
+  ammoPickupToastElement.classList.toggle("is-weapon-pistol", weaponId !== shotgunCombatWeaponId);
   ammoPickupToastElement.classList.remove("is-visible");
   // Force the transition to replay when pickups happen quickly.
   void ammoPickupToastElement.offsetWidth;
@@ -4625,6 +5337,7 @@ function updateAmmoPickupToast(delta) {
 
 function resetCorpseSearchState() {
   corpseSearchState = createCorpseSearchState();
+  clearCorpseSearchProgress();
   syncCorpseSearchButton(null);
 }
 
@@ -4639,6 +5352,13 @@ function updateCorpseSearch(delta) {
   }
 
   corpseSearchState.timer = Math.max(0, corpseSearchState.timer - delta);
+  setCorpseSearchProgress(1 - (corpseSearchState.timer / corpseSearchDuration));
+  corpseSearchState.dustTimer -= delta;
+  if (corpseSearchState.dustTimer <= 0) {
+    createCorpseSearchDust(corpseSearchState.enemy);
+    playJuiceSound("dust", 0.16);
+    corpseSearchState.dustTimer = corpseSearchDustInterval;
+  }
   corpseSearchState.animationTimer -= delta;
   if (corpseSearchState.animationTimer <= 0) {
     playMovement("PickUp", { restart: true });
@@ -4655,7 +5375,6 @@ function updateCorpseSearch(delta) {
 function updateCorpseSearchPrompt() {
   if (corpseSearchState.active) {
     corpseSearchState.promptEnemy = null;
-    syncCorpseSearchButton(null);
     return;
   }
 
@@ -4672,6 +5391,32 @@ function syncCorpseSearchButton(enemy) {
   const canShow = Boolean(enemy);
   corpseSearchButton.hidden = !canShow;
   corpseSearchButton.disabled = !canShow;
+  if (canShow) {
+    corpseSearchButton.style.setProperty("--search-progress", "0%");
+  }
+}
+
+function setCorpseSearchProgress(progress) {
+  if (!corpseSearchButton) {
+    return;
+  }
+
+  corpseSearchButton.hidden = false;
+  corpseSearchButton.disabled = true;
+  corpseSearchButton.classList.add("is-searching");
+  corpseSearchButton.style.setProperty(
+    "--search-progress",
+    `${THREE.MathUtils.clamp(progress, 0, 1) * 100}%`,
+  );
+}
+
+function clearCorpseSearchProgress() {
+  if (!corpseSearchButton) {
+    return;
+  }
+
+  corpseSearchButton.classList.remove("is-searching");
+  corpseSearchButton.style.setProperty("--search-progress", "0%");
 }
 
 function startCorpseSearchFromPrompt() {
@@ -4702,8 +5447,10 @@ function startCorpseSearch(enemy) {
   corpseSearchState.enemy = enemy;
   corpseSearchState.timer = corpseSearchDuration;
   corpseSearchState.animationTimer = 0;
+  corpseSearchState.dustTimer = 0;
   corpseSearchState.promptEnemy = null;
-  syncCorpseSearchButton(null);
+  setCorpseSearchProgress(0);
+  playJuiceSound("dust", 0.26);
   playMovement("PickUp", { restart: true });
   return true;
 }
@@ -4714,6 +5461,14 @@ function finishCorpseSearch() {
   const weaponId = shouldForceAmmoFind || Math.random() < corpseSearchFindChance
     ? pickCorpseSearchWeaponId()
     : null;
+
+  if (enemy) {
+    if (weaponId) {
+      createPickupBurst(enemy.model.position, weaponId);
+    } else {
+      createCorpseSearchDust(enemy);
+    }
+  }
 
   resetCorpseSearchState();
 
@@ -4878,6 +5633,7 @@ function updateShotgunChest(delta) {
 
 function openShotgunChest(chest) {
   chest.opened = true;
+  createChestOpenJuice(chest);
   if (!chest.dropRequested) {
     chest.dropRequested = true;
     spawnShotgunWeaponDrop(chest);
@@ -4935,6 +5691,7 @@ function updateShotgunWeaponDrop(delta) {
   activeWeaponDrop.group.position.lerpVectors(activeWeaponDrop.start, activeWeaponDrop.end, progress);
   activeWeaponDrop.group.position.y += Math.sin(progress * Math.PI) * shotgunDropArcHeight;
   activeWeaponDrop.group.rotation.y += delta * 2.8;
+  activeWeaponDrop.group.scale.setScalar(1 + Math.sin(activeWeaponDrop.age * 6.6) * 0.045);
   activeWeaponDrop.collectable = progress >= 0.45;
 
   if (!activeWeaponDrop.collectable) {
@@ -4957,10 +5714,13 @@ function collectShotgunWeaponDrop() {
     return;
   }
 
+  const pickupPosition = activeWeaponDrop.group.position.clone();
+  createShotgunUnlockJuice(pickupPosition);
   activeWeaponDrop.group.removeFromParent();
   activeWeaponDrop = null;
   unlockCombatWeapon(shotgunCombatWeaponId, { ammo: getCombatWeaponConfig(shotgunCombatWeaponId).grantAmmo });
   equipWeapon(shotgunCombatWeaponId);
+  pulseWeaponSlot(shotgunCombatWeaponId, "is-unlocked-juice");
   setStatus("Shotgun equipada", "done");
   window.setTimeout(() => hideStatus(), 700);
 }
@@ -7597,6 +8357,13 @@ function finishRun(outcome) {
 
   stopFloorMusic();
   stopGameplayInputForRunSummary();
+  phoneShellElement?.classList.toggle("is-run-complete", outcome === "complete");
+  phoneShellElement?.classList.toggle("is-player-dead", outcome === "dead");
+  if (outcome === "complete") {
+    playJuiceSound("clear", 0.9);
+  } else {
+    playJuiceSound("dust", 0.72);
+  }
   runTimingState.resultShown = true;
   const recordResult = updateRunRecords(outcome);
   renderRunNicknamePrompt(outcome, recordResult.records, recordResult);
@@ -8471,6 +9238,7 @@ function spawnPendingBosses() {
     }
 
     enemy.mixer.update(0.001);
+    createBossSpawnJuice(enemy);
   }
 }
 
@@ -8487,6 +9255,7 @@ function startStageClear() {
 
   stageFlowState.clearActive = true;
   showStageBanner("FLOOR CLEAR");
+  createStageClearJuice();
   if (shouldPlayBossClearCameraOutro()) {
     stageFlowState.clearTimer = 0;
     startGameplayCameraOutro();
@@ -8644,6 +9413,7 @@ function alertEnemy(enemy) {
 
   enemy.alerted = true;
   enemy.pathRepathTimer = 0;
+  createEnemyAlertJuice(enemy);
 }
 
 function wakeInactiveFloorEnemy(enemy) {
@@ -8653,6 +9423,7 @@ function wakeInactiveFloorEnemy(enemy) {
 
   enemy.alerted = true;
   enemy.pathRepathTimer = 0;
+  createEnemyAlertJuice(enemy);
   const clipName = pickInactiveFloorWakeAnimation(enemy);
   startEnemyTimedState(enemy, "awakening", clipName, 1.6);
   return true;
@@ -8669,6 +9440,8 @@ function pickInactiveFloorWakeAnimation(enemy) {
 }
 
 function updateEnemyHitFeedback(enemy, delta) {
+  updateEnemyMaterialFlash(enemy, delta);
+
   if (enemy.hitReactTimer <= 0) {
     enemy.model.rotation.z = 0;
     return;
@@ -8677,6 +9450,89 @@ function updateEnemyHitFeedback(enemy, delta) {
   enemy.hitReactTimer = Math.max(0, enemy.hitReactTimer - delta);
   const progress = enemy.hitReactTimer / enemyHitReactDuration;
   enemy.model.rotation.z = Math.sin((1 - progress) * Math.PI * 8 + enemy.hitReactPhase) * 0.055 * progress;
+}
+
+function triggerEnemyMaterialFlash(enemy, headshot = false) {
+  if (!enemy?.model) {
+    return;
+  }
+
+  enemy.materialFlashTimer = enemyMaterialFlashDuration;
+  enemy.materialFlashColor = headshot ? 0xff3434 : 0xffd84d;
+  applyEnemyMaterialFlash(enemy, 1);
+}
+
+function updateEnemyMaterialFlash(enemy, delta) {
+  if (!enemy?.materialFlashTimer || enemy.materialFlashTimer <= 0) {
+    return;
+  }
+
+  enemy.materialFlashTimer = Math.max(0, enemy.materialFlashTimer - delta);
+  const alpha = THREE.MathUtils.clamp(enemy.materialFlashTimer / enemyMaterialFlashDuration, 0, 1);
+  applyEnemyMaterialFlash(enemy, alpha);
+  if (enemy.materialFlashTimer <= 0) {
+    restoreEnemyMaterials(enemy);
+  }
+}
+
+function applyEnemyMaterialFlash(enemy, alpha) {
+  const flashColor = new THREE.Color(enemy.materialFlashColor || 0xffd84d);
+  enemy.model.traverse((node) => {
+    if (!node.isMesh) {
+      return;
+    }
+
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    for (const material of materials) {
+      if (!material?.color) {
+        continue;
+      }
+
+      if (!material.userData.juiceBaseColor) {
+        material.userData.juiceBaseColor = material.color.clone();
+      }
+      material.color.copy(material.userData.juiceBaseColor).lerp(flashColor, alpha);
+    }
+  });
+}
+
+function restoreEnemyMaterials(enemy) {
+  enemy.model.traverse((node) => {
+    if (!node.isMesh) {
+      return;
+    }
+
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    for (const material of materials) {
+      if (material?.color && material.userData.juiceBaseColor) {
+        material.color.copy(material.userData.juiceBaseColor);
+      }
+    }
+  });
+}
+
+function markEnemyCorpseVisual(enemy) {
+  if (!isSearchableCorpse(enemy)) {
+    return;
+  }
+
+  enemy.model.traverse((node) => {
+    if (!node.isMesh) {
+      return;
+    }
+
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    for (const material of materials) {
+      if (!material?.color) {
+        continue;
+      }
+
+      if (!material.userData.juiceBaseColor) {
+        material.userData.juiceBaseColor = material.color.clone();
+      }
+      material.color.copy(material.userData.juiceBaseColor).lerp(new THREE.Color(0x5b554c), 0.34);
+    }
+  });
 }
 
 function isEnemyTimedState(state) {
@@ -8715,6 +9571,7 @@ function updateEnemyTimedState(enemy, delta) {
   if (enemy.state === "dying" && enemy.stateTimer <= 0) {
     enemy.state = "dead";
     playEnemyAnimation(enemy, "Skeletons_Death_Pose", { loop: true });
+    markEnemyCorpseVisual(enemy);
     return;
   }
 
@@ -8814,7 +9671,7 @@ function updateEnemyAttack(enemy, delta) {
   if (!enemy.attackHitApplied && enemy.stateElapsed >= enemyAttackHitTime) {
     enemy.attackHitApplied = true;
     if (isPlayerInEnemyAttackReach(enemy)) {
-      damagePlayer(enemy.attackDamage);
+      damagePlayer(enemy.attackDamage, enemy);
     }
   }
 
@@ -8824,14 +9681,17 @@ function updateEnemyAttack(enemy, delta) {
   }
 }
 
-function damagePlayer(amount) {
+function damagePlayer(amount, sourceEnemy = null) {
   if (playerControlState.dead) {
     return;
   }
 
   playerControlState.health = Math.max(0, playerControlState.health - amount);
   syncPlayerHealthHud();
-  triggerPlayerDamageFeedback();
+  triggerPlayerDamageFeedback(sourceEnemy);
+  showHitDirection(sourceEnemy);
+  triggerCameraShake(playerHitCameraShakeStrength, 0.24);
+  playJuiceSound("impact", 0.62);
 
   if (playerControlState.health > 0) {
     playerControlState.hitReactTimer = 0.42;
@@ -8840,6 +9700,7 @@ function damagePlayer(amount) {
   }
 
   playerControlState.dead = true;
+  phoneShellElement?.classList.add("is-player-dead");
   clearPlayerMouseButtons();
   resetCorpseSearchState();
   playMovement("Death_A", { restart: true });
@@ -8851,7 +9712,7 @@ function damagePlayer(amount) {
   finishRun("dead");
 }
 
-function damageEnemy(enemy, amount, { source = "generic" } = {}) {
+function damageEnemy(enemy, amount, { source = "generic", headshot = false } = {}) {
   if (!isEnemyTargetable(enemy)) {
     return false;
   }
@@ -8860,6 +9721,7 @@ function damageEnemy(enemy, amount, { source = "generic" } = {}) {
   enemy.health = Math.max(0, enemy.health - amount);
   enemy.hitReactTimer = enemyHitReactDuration;
   enemy.hitReactPhase = Math.random() * Math.PI * 2;
+  triggerEnemyMaterialFlash(enemy, headshot);
 
   if (source === "shot") {
     alertEnemy(enemy);
@@ -8902,6 +9764,7 @@ function killEnemy(enemy) {
   enemy.health = 0;
   enemy.active = false;
   stopEnemyMovementSound(enemy);
+  createEnemyDeathJuice(enemy);
   trySpawnAmmoDrop(enemy);
   startEnemyTimedState(enemy, "dying", "Skeletons_Death", 1.1);
 }
@@ -10764,6 +11627,7 @@ function prepareStaticModel(model) {
     node.castShadow = false;
     node.receiveShadow = false;
     node.frustumCulled = false;
+    node.material = cloneMaterialCollection(node.material);
 
     const materials = Array.isArray(node.material) ? node.material : [node.material];
     for (const material of materials) {
@@ -11018,7 +11882,9 @@ function syncPlayerHealthHud() {
   }
   if (healthHudElement) {
     healthHudElement.setAttribute("aria-label", `Vida ${Math.ceil(playerControlState.health)}`);
+    healthHudElement.classList.toggle("is-low", healthRatio > 0 && healthRatio <= lowHealthRatio);
   }
+  phoneShellElement?.classList.toggle("is-low-health", healthRatio > 0 && healthRatio <= lowHealthRatio);
 }
 
 function syncPlayerAmmoHud() {
@@ -11039,6 +11905,7 @@ function syncPlayerAmmoHud() {
   }
   if (ammoHudElement) {
     ammoHudElement.classList.toggle("is-empty", ammo <= 0);
+    ammoHudElement.classList.toggle("is-low", ammo > 0 && ammo <= Math.ceil(config.maxAmmo * 0.25));
     ammoHudElement.classList.toggle("is-weapon-pistol", weaponId === defaultCombatWeaponId);
     ammoHudElement.classList.toggle("is-weapon-shotgun", weaponId === shotgunCombatWeaponId);
     ammoHudElement.setAttribute("aria-label", `Municao ${ammo}`);
@@ -11127,6 +11994,7 @@ function addCombatWeaponAmmo(weaponId, amount) {
   setCombatWeaponAmmo(weaponId, getCombatWeaponAmmo(weaponId) + amount);
   if (amount > 0) {
     playAmmoReloadSound();
+    pulseElement(ammoHudElement, "is-juiced");
   }
 }
 
@@ -11135,6 +12003,7 @@ function triggerPlayerDamageFeedback() {
     return;
   }
 
+  pulseElement(healthHudElement, "is-juiced");
   phoneShellElement.classList.remove("is-player-hit");
   window.requestAnimationFrame(() => {
     phoneShellElement.classList.add("is-player-hit");

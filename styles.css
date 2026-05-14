@@ -190,6 +190,70 @@ body {
   }
 }
 
+@keyframes hud-pop {
+  0% {
+    transform: scale(1);
+  }
+
+  45% {
+    transform: scale(1.12);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes health-danger-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+
+  50% {
+    filter: brightness(1.45);
+  }
+}
+
+@keyframes low-health-vignette {
+  0%,
+  100% {
+    opacity: 0.42;
+  }
+
+  50% {
+    opacity: 0.78;
+  }
+}
+
+@keyframes banner-pop {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.82);
+  }
+
+  48% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.08);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+}
+
+@keyframes record-glow {
+  0%,
+  100% {
+    text-shadow: 0 0 0 rgb(119 217 140 / 0%);
+  }
+
+  50% {
+    text-shadow: 0 0 12px rgb(119 217 140 / 62%);
+  }
+}
+
 @media (max-width: 460px) {
   .start-menu {
     grid-template-columns: minmax(0, 1fr) minmax(210px, 52cqw);
@@ -359,6 +423,32 @@ body.is-runtime-mobile:not(.has-started) {
   overflow: hidden;
   isolation: isolate;
   background: #151515;
+}
+
+.phone-shell::before {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at center, rgb(255 44 34 / 0%) 0 48%, rgb(255 44 34 / 20%) 100%),
+    linear-gradient(180deg, rgb(255 44 34 / 10%), rgb(255 44 34 / 0%) 40%);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+.phone-shell.is-low-health::before {
+  animation: low-health-vignette 1.05s ease-in-out infinite;
+  opacity: 1;
+}
+
+.phone-shell.is-player-dead .scene {
+  filter: grayscale(0.72) brightness(0.68) contrast(1.12);
+}
+
+.phone-shell.is-run-complete .scene {
+  filter: saturate(1.16) brightness(1.08);
 }
 
 @media (min-width: 560px) {
@@ -1086,6 +1176,15 @@ body.is-runtime-mobile:not(.has-started) {
   gap: 8px;
 }
 
+.health-hud.is-juiced {
+  animation: hud-pop 220ms ease-out;
+}
+
+.health-hud.is-low {
+  border-color: rgb(255 83 70 / 56%);
+  box-shadow: 0 0 18px rgb(255 44 34 / 20%);
+}
+
 .health-hud__icon {
   color: #e24438;
   font-size: 15px;
@@ -1110,6 +1209,10 @@ body.is-runtime-mobile:not(.has-started) {
   background: #d92f2f;
   transform-origin: left center;
   transition: width 160ms ease;
+}
+
+.health-hud.is-low .health-hud__fill {
+  animation: health-danger-pulse 820ms ease-in-out infinite;
 }
 
 .options-gear-button {
@@ -1163,6 +1266,19 @@ body.is-runtime-mobile:not(.has-started) {
   box-shadow: inset 0 0 0 1px rgb(255 238 166 / 10%);
 }
 
+.weapon-slot-hud.is-juiced,
+.weapon-slot.is-juiced,
+.weapon-slot.is-unlocked-juice {
+  animation: hud-pop 240ms ease-out;
+}
+
+.weapon-slot.is-unlocked-juice {
+  border-color: rgb(120 240 162 / 72%);
+  box-shadow:
+    inset 0 0 0 1px rgb(120 240 162 / 20%),
+    0 0 18px rgb(120 240 162 / 24%);
+}
+
 .weapon-slot__key {
   display: grid;
   place-items: center;
@@ -1212,6 +1328,15 @@ body.is-runtime-mobile:not(.has-started) {
   gap: 7px;
   color: #c8c8c8;
   font-weight: 800;
+}
+
+.ammo-hud.is-juiced {
+  animation: hud-pop 220ms ease-out;
+}
+
+.ammo-hud.is-low:not(.is-empty) {
+  border-color: rgb(255 216 77 / 44%);
+  box-shadow: 0 0 14px rgb(255 216 77 / 12%);
 }
 
 .ammo-hud__icon {
@@ -1264,6 +1389,10 @@ body.is-runtime-mobile:not(.has-started) {
 .ammo-hud__pickup.is-visible {
   opacity: 1;
   transform: translateY(-3px);
+}
+
+.ammo-hud__pickup.is-weapon-shotgun {
+  color: #8ddeae;
 }
 
 body.is-runtime-mobile .weapon-slot-hud {
@@ -1333,10 +1462,34 @@ body.is-runtime-mobile .options-gear-button:focus-visible {
   transform: translateX(-50%);
   pointer-events: auto;
   touch-action: none;
+  --search-progress: 0%;
 }
 
 .corpse-search-button[hidden] {
   display: none;
+}
+
+.corpse-search-button.is-searching {
+  border-color: rgb(228 211 131 / 70%);
+  cursor: wait;
+}
+
+.corpse-search-button__progress {
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  background: conic-gradient(rgb(228 211 131 / 78%) var(--search-progress), rgb(228 211 131 / 0%) 0);
+  opacity: 0;
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  padding: 2px;
+}
+
+.corpse-search-button.is-searching .corpse-search-button__progress {
+  opacity: 1;
 }
 
 .corpse-search-button__key {
@@ -1377,6 +1530,28 @@ body.is-runtime-mobile .corpse-search-button__key {
   transition: opacity 220ms ease;
 }
 
+.hit-direction {
+  position: absolute;
+  z-index: 5;
+  top: 50%;
+  left: 50%;
+  width: 120px;
+  height: 120px;
+  border-top: 5px solid rgb(255 72 58 / 82%);
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%) rotate(var(--hit-direction-rotation, 0deg)) scale(0.86);
+  transition:
+    opacity 90ms ease,
+    transform 180ms ease;
+}
+
+.hit-direction.is-visible {
+  opacity: 1;
+  transform: translate(-50%, -50%) rotate(var(--hit-direction-rotation, 0deg)) scale(1);
+}
+
 .stage-banner {
   position: absolute;
   z-index: 6;
@@ -1402,6 +1577,11 @@ body.is-runtime-mobile .corpse-search-button__key {
   color: #e4b83a;
   font-size: 34px;
   transform: translate(-50%, -50%);
+}
+
+.stage-banner.is-juiced {
+  animation: banner-pop 420ms ease-out;
+  box-shadow: 0 0 26px rgb(228 211 131 / 28%);
 }
 
 .run-summary-modal {
@@ -1479,6 +1659,7 @@ body.is-runtime-mobile .corpse-search-button__key {
 
 .run-summary-table td.run-summary-record.is-new-record {
   color: #77d98c;
+  animation: record-glow 920ms ease-in-out infinite;
 }
 
 .run-summary-back-button {
@@ -1830,10 +2011,25 @@ body.is-runtime-mobile .crosshair.is-firing .crosshair__arm {
   transform: translate(-50%, -50%) scale(0.88);
 }
 
+.crosshair.is-juiced {
+  transform: translate(-50%, -50%) scale(1.13);
+}
+
+.crosshair.is-headshot {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1.22);
+}
+
 .crosshair.is-firing .crosshair__arm,
 .crosshair.is-firing .crosshair__dot {
   background: #ffd2c8;
   box-shadow: 0 0 0 1px rgb(0 0 0 / 68%), 0 0 14px rgb(255 116 89 / 42%);
+}
+
+.crosshair.is-headshot .crosshair__arm,
+.crosshair.is-headshot .crosshair__dot {
+  background: #ff3434;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 72%), 0 0 20px rgb(255 52 52 / 70%);
 }
 
 .crosshair.is-shotgun.is-firing::before {
